@@ -1,0 +1,33 @@
+R_DEF: Internal format may change without notice
+local
+color ic_launcher_background
+drawable ic_launcher_foreground
+mipmap ic_launcher
+mipmap ic_launcher_round
+string albums
+string all_tracks
+string app_name
+string artists
+string choose_custom_folder
+string default_music_folder
+string fast_forward
+string folders
+string next
+string no_artwork
+string pause
+string play
+string previous
+string rewind
+string scan_library
+string sort_alphabetical
+string sort_chronological
+string sort_track_number
+string sort_year
+string stop
+string unknown_album
+string unknown_artist
+string unknown_title
+string years
+style Theme.TPlayer
+xml backup_rules
+xml data_extraction_rules

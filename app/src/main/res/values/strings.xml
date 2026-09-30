@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TPlayer</string>
+    <string name="default_music_folder">Default Music Folder</string>
+    <string name="choose_custom_folder">Choose Custom Folder</string>
+    <string name="scan_library">Scan Library</string>
+    <string name="artists">Artists</string>
+    <string name="albums">Albums</string>
+    <string name="years">Years</string>
+    <string name="folders">Folders</string>
+    <string name="all_tracks">All Tracks</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="stop">Stop</string>
+    <string name="next">Next</string>
+    <string name="previous">Previous</string>
+    <string name="fast_forward">Fast Forward</string>
+    <string name="rewind">Rewind</string>
+    <string name="sort_alphabetical">Alphabetical</string>
+    <string name="sort_track_number">By Track Number</string>
+    <string name="sort_year">By Year</string>
+    <string name="sort_chronological">Chronological</string>
+    <string name="no_artwork">No Artwork</string>
+    <string name="unknown_artist">Unknown Artist</string>
+    <string name="unknown_album">Unknown Album</string>
+    <string name="unknown_title">Unknown Title</string>
+</resources>
