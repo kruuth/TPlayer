@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -25,7 +26,8 @@ data class AppSettings(
     val buttonColor: Long = 0xFF6200EE,      // ARGB
     val backgroundColor: Long? = null,       // null = use theme default
     val fontColor: Long? = null,
-    val excludedFolders: Set<String> = emptySet()
+    val excludedFolders: Set<String> = emptySet(),
+    val steeringBeepEnabled: Boolean = true
 )
 
 @Singleton
@@ -40,6 +42,7 @@ class UserPreferences @Inject constructor(
         val EXCLUDED = stringSetPreferencesKey("excluded_folders")
         val HAS_BG = intPreferencesKey("has_bg")
         val HAS_FONT = intPreferencesKey("has_font")
+        val STEERING_BEEP = booleanPreferencesKey("steering_beep")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -52,9 +55,15 @@ class UserPreferences @Inject constructor(
             buttonColor = prefs[Keys.BUTTON] ?: 0xFF6200EE,
             backgroundColor = if (prefs[Keys.HAS_BG] == 1) prefs[Keys.BACKGROUND] else null,
             fontColor = if (prefs[Keys.HAS_FONT] == 1) prefs[Keys.FONT] else null,
-            excludedFolders = prefs[Keys.EXCLUDED] ?: emptySet()
+            excludedFolders = prefs[Keys.EXCLUDED] ?: emptySet(),
+            steeringBeepEnabled = prefs[Keys.STEERING_BEEP] ?: true
         )
     }
+
+    suspend fun setSteeringBeepEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.STEERING_BEEP] = enabled }
+    }
+
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { it[Keys.THEME] = mode.name }

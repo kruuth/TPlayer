@@ -30,37 +30,45 @@ fun BrowseScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Artists", "Albums", "Years", "Folders", "All")
 
-    // Hierarchical folder navigation state
-    var folderPath by remember { mutableStateOf("") } // "" = root listing of top-level segments
-
-    val visibleFolders = remember(folders, excluded, folderPath) {
-        val filtered = folders.filter { f ->
-            excluded.none { excl -> f == excl || f.startsWith("$excl/") || f.startsWith("$excl\\") }
-        }
-        if (folderPath.isEmpty()) {
-            // top-level unique first path segments
-            filtered.map { path ->
-                path.trim('/').substringBefore('/')
-            }.distinct().sorted()
-        } else {
-            val prefix = folderPath.trimEnd('/') + "/"
-            filtered
-                .filter { it == folderPath || it.startsWith(prefix) }
-                .map { path ->
-                    val rest = path.removePrefix(folderPath).trimStart('/')
-                    if (rest.isEmpty()) null
-                    else rest.substringBefore('/')
-                }
-                .filterNotNull()
-                .distinct()
-                .sorted()
+    // Normalized folder list (exclude excluded paths)
+    val filteredFolders = remember(folders, excluded) {
+        folders.filter { f ->
+            excluded.none { excl ->
+                f == excl || f.startsWith("$excl/") || f.startsWith("$excl\\")
+            }
         }
     }
 
-    // Full paths under current folder that are exact matches (contain tracks at this level)
-    val canPlayCurrentFolder = remember(folders, folderPath) {
-        folderPath.isNotEmpty() && folders.any { it == folderPath || it.startsWith(folderPath.trimEnd('/') + "/") }
+    // Common library root shared by all paths (e.g. "Music" or "storage/Music")
+    // So the Folders tab opens *inside* the root and never lists the root itself.
+    val libraryRoot = remember(filteredFolders) {
+        commonPathPrefix(filteredFolders)
     }
+
+    // Current location relative to library; empty string means at library root
+    var relativePath by remember { mutableStateOf("") }
+
+    // Absolute path for queries / display
+    val currentPath = remember(libraryRoot, relativePath) {
+        when {
+            relativePath.isEmpty() -> libraryRoot
+            libraryRoot.isEmpty() -> relativePath
+            else -> libraryRoot.trimEnd('/') + "/" + relativePath.trimStart('/')
+        }
+    }
+
+    val visibleChildNames = remember(filteredFolders, currentPath, libraryRoot) {
+        childFolderNames(filteredFolders, currentPath)
+    }
+
+    val canPlayCurrentFolder = remember(filteredFolders, currentPath) {
+        currentPath.isNotEmpty() && filteredFolders.any {
+            it == currentPath || it.startsWith(currentPath.trimEnd('/') + "/")
+        }
+    }
+
+    // Show Up only when deeper than library root
+    val canGoUp = relativePath.isNotEmpty()
 
     Scaffold(
         topBar = {
@@ -91,7 +99,7 @@ fun BrowseScreen(
                         selected = selectedTab == index,
                         onClick = {
                             selectedTab = index
-                            if (index != 3) folderPath = ""
+                            if (index != 3) relativePath = ""
                         },
                         text = {
                             Text(
@@ -138,20 +146,15 @@ fun BrowseScreen(
                     }
                 }
                 3 -> {
-                    // Folder browser with Up
                     Column {
-                        if (folderPath.isNotEmpty()) {
+                        if (canGoUp) {
                             ListItem(
                                 headlineContent = {
-                                    Text(
-                                        "⬆ Up",
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
+                                    Text("⬆ Up", maxLines = 1, softWrap = false)
                                 },
                                 supportingContent = {
                                     Text(
-                                        folderPath,
+                                        relativePath.ifEmpty { libraryRoot },
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         softWrap = false
@@ -161,34 +164,46 @@ fun BrowseScreen(
                                     Icon(Icons.Default.ArrowUpward, "Go up")
                                 },
                                 modifier = Modifier.clickable {
-                                    folderPath = folderPath.trimEnd('/')
+                                    relativePath = relativePath.trimEnd('/')
                                         .substringBeforeLast('/', missingDelimiterValue = "")
                                 }
                             )
                             HorizontalDivider()
-                            if (canPlayCurrentFolder) {
-                                ListItem(
-                                    headlineContent = {
+                        }
+
+                        // Always allow playing current level (including library root contents)
+                        if (canPlayCurrentFolder) {
+                            ListItem(
+                                headlineContent = {
+                                    Text("▶ Play this folder", maxLines = 1, softWrap = false)
+                                },
+                                supportingContent = if (relativePath.isNotEmpty()) {
+                                    {
                                         Text(
-                                            "▶ Play this folder",
+                                            relativePath,
                                             maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                             softWrap = false
                                         )
-                                    },
-                                    leadingContent = {
-                                        Icon(Icons.Default.PlayArrow, null)
-                                    },
-                                    modifier = Modifier.clickable {
-                                        onOpenList("folder", folderPath)
                                     }
-                                )
-                                HorizontalDivider()
-                            }
+                                } else null,
+                                leadingContent = {
+                                    Icon(Icons.Default.PlayArrow, null)
+                                },
+                                modifier = Modifier.clickable {
+                                    onOpenList("folder", currentPath)
+                                }
+                            )
+                            HorizontalDivider()
                         }
+
                         LazyColumn {
-                            items(visibleFolders) { name ->
-                                val nextPath = if (folderPath.isEmpty()) name
-                                else folderPath.trimEnd('/') + "/" + name
+                            items(visibleChildNames) { name ->
+                                val nextRelative = if (relativePath.isEmpty()) name
+                                else relativePath.trimEnd('/') + "/" + name
+                                val nextAbsolute = if (libraryRoot.isEmpty()) nextRelative
+                                else libraryRoot.trimEnd('/') + "/" + nextRelative
+
                                 ListItem(
                                     headlineContent = {
                                         Text(
@@ -205,15 +220,14 @@ fun BrowseScreen(
                                         Icon(Icons.AutoMirrored.Filled.ArrowForward, null)
                                     },
                                     modifier = Modifier.clickable {
-                                        // If this is a leaf folder (no children), open tracks; else descend
-                                        val hasChildren = folders.any {
-                                            it.startsWith(nextPath.trimEnd('/') + "/") &&
-                                                it != nextPath
+                                        val hasChildren = filteredFolders.any {
+                                            it.startsWith(nextAbsolute.trimEnd('/') + "/") &&
+                                                it != nextAbsolute
                                         }
                                         if (hasChildren) {
-                                            folderPath = nextPath
+                                            relativePath = nextRelative
                                         } else {
-                                            onOpenList("folder", nextPath)
+                                            onOpenList("folder", nextAbsolute)
                                         }
                                     }
                                 )
@@ -231,4 +245,48 @@ fun BrowseScreen(
             }
         }
     }
+}
+
+/**
+ * Longest common directory prefix of all paths.
+ * e.g. ["Music/A", "Music/B"] → "Music"
+ *      ["Music"] → "Music" (then children of Music are shown, not Music itself as the only entry)
+ */
+private fun commonPathPrefix(paths: List<String>): String {
+    if (paths.isEmpty()) return ""
+    val normalized = paths.map { it.trim('/').replace('\\', '/') }
+    val first = normalized.first().split('/')
+    var end = first.size
+    for (p in normalized.drop(1)) {
+        val parts = p.split('/')
+        var i = 0
+        while (i < end && i < parts.size && parts[i] == first[i]) i++
+        end = i
+        if (end == 0) return ""
+    }
+    // If every path is exactly the same single segment (e.g. all "Music"),
+    // that segment *is* the library root — we still use it so we list its children.
+    return first.take(end).joinToString("/")
+}
+
+/** Immediate child folder names under [parent] (not the parent itself). */
+private fun childFolderNames(allPaths: List<String>, parent: String): List<String> {
+    val p = parent.trim('/').replace('\\', '/')
+    return allPaths
+        .map { it.trim('/').replace('\\', '/') }
+        .mapNotNull { path ->
+            when {
+                p.isEmpty() -> {
+                    // No common root — show first segments, but if a path has more depth, only first
+                    path.substringBefore('/').takeIf { it.isNotEmpty() }
+                }
+                path == p -> null // don't list the parent folder itself
+                path.startsWith("$p/") -> {
+                    path.removePrefix("$p/").substringBefore('/').takeIf { it.isNotEmpty() }
+                }
+                else -> null
+            }
+        }
+        .distinct()
+        .sorted()
 }

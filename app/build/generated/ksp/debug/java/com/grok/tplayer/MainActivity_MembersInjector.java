@@ -1,6 +1,7 @@
 package com.grok.tplayer;
 
 import com.grok.tplayer.data.preferences.UserPreferences;
+import com.grok.tplayer.data.repository.MusicRepository;
 import com.grok.tplayer.player.PlayerController;
 import dagger.MembersInjector;
 import dagger.internal.DaggerGenerated;
@@ -28,22 +29,28 @@ public final class MainActivity_MembersInjector implements MembersInjector<MainA
 
   private final Provider<UserPreferences> userPreferencesProvider;
 
+  private final Provider<MusicRepository> musicRepositoryProvider;
+
   public MainActivity_MembersInjector(Provider<PlayerController> playerControllerProvider,
-      Provider<UserPreferences> userPreferencesProvider) {
+      Provider<UserPreferences> userPreferencesProvider,
+      Provider<MusicRepository> musicRepositoryProvider) {
     this.playerControllerProvider = playerControllerProvider;
     this.userPreferencesProvider = userPreferencesProvider;
+    this.musicRepositoryProvider = musicRepositoryProvider;
   }
 
   public static MembersInjector<MainActivity> create(
       Provider<PlayerController> playerControllerProvider,
-      Provider<UserPreferences> userPreferencesProvider) {
-    return new MainActivity_MembersInjector(playerControllerProvider, userPreferencesProvider);
+      Provider<UserPreferences> userPreferencesProvider,
+      Provider<MusicRepository> musicRepositoryProvider) {
+    return new MainActivity_MembersInjector(playerControllerProvider, userPreferencesProvider, musicRepositoryProvider);
   }
 
   @Override
   public void injectMembers(MainActivity instance) {
     injectPlayerController(instance, playerControllerProvider.get());
     injectUserPreferences(instance, userPreferencesProvider.get());
+    injectMusicRepository(instance, musicRepositoryProvider.get());
   }
 
   @InjectedFieldSignature("com.grok.tplayer.MainActivity.playerController")
@@ -55,5 +62,10 @@ public final class MainActivity_MembersInjector implements MembersInjector<MainA
   @InjectedFieldSignature("com.grok.tplayer.MainActivity.userPreferences")
   public static void injectUserPreferences(MainActivity instance, UserPreferences userPreferences) {
     instance.userPreferences = userPreferences;
+  }
+
+  @InjectedFieldSignature("com.grok.tplayer.MainActivity.musicRepository")
+  public static void injectMusicRepository(MainActivity instance, MusicRepository musicRepository) {
+    instance.musicRepository = musicRepository;
   }
 }

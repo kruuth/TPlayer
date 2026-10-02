@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MusicNote
@@ -11,10 +13,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.grok.tplayer.data.scanner.LibraryScanner
-import com.grok.tplayer.ui.screens.source.SourceViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -24,9 +26,22 @@ fun SourceScreen(
 ) {
     val scanState by viewModel.scanProgress.collectAsState()
     val trackCount by viewModel.trackCount.collectAsState()
+    val pending by viewModel.pendingScan.collectAsState()
+    val skips by viewModel.selectedSkips.collectAsState()
+    val listing by viewModel.listingFolders.collectAsState()
 
     val folderLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
+        contract = object : ActivityResultContracts.OpenDocumentTree() {
+            override fun createIntent(context: android.content.Context, input: Uri?): android.content.Intent {
+                return super.createIntent(context, input).apply {
+                    addFlags(
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                            android.content.Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+                    )
+                }
+            }
+        }
     ) { uri: Uri? ->
         uri?.let { viewModel.scanCustomFolder(it) }
     }
@@ -39,7 +54,16 @@ fun SourceScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("TPlayer – Choose Source", maxLines = 1, softWrap = false) })
+            TopAppBar(
+                title = {
+                    Text(
+                        "TPlayer – Choose Source",
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            )
         }
     ) { padding ->
         Column(
@@ -52,18 +76,19 @@ fun SourceScreen(
         ) {
             Text(
                 "Select where your MP3 files live",
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2
             )
             Spacer(Modifier.height(32.dp))
 
             Button(
                 onClick = { viewModel.scanDefaultMusic() },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = scanState !is LibraryScanner.ScanState.Scanning
+                enabled = scanState !is LibraryScanner.ScanState.Scanning && !listing
             ) {
                 Icon(Icons.Default.MusicNote, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Default /Internal storage/Music/")
+                Text("Default /Internal storage/Music/", maxLines = 1, softWrap = false)
             }
 
             Spacer(Modifier.height(16.dp))
@@ -71,14 +96,20 @@ fun SourceScreen(
             OutlinedButton(
                 onClick = { folderLauncher.launch(null) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = scanState !is LibraryScanner.ScanState.Scanning
+                enabled = scanState !is LibraryScanner.ScanState.Scanning && !listing
             ) {
                 Icon(Icons.Default.Folder, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Choose Custom Folder…")
+                Text("Choose Custom Folder…", maxLines = 1, softWrap = false)
             }
 
             Spacer(Modifier.height(32.dp))
+
+            if (listing) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(8.dp))
+                Text("Listing folders…", maxLines = 1, softWrap = false)
+            }
 
             when (val state = scanState) {
                 is LibraryScanner.ScanState.Scanning -> {
@@ -89,14 +120,18 @@ fun SourceScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text("Scanning ${state.current}/${state.total}: ${state.fileName}")
+                    Text(
+                        "Scanning ${state.current}/${state.total}: ${state.fileName}",
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 is LibraryScanner.ScanState.Finished -> {
-                    Text("Found ${state.count} tracks")
+                    Text("Found ${state.count} tracks", maxLines = 1, softWrap = false)
                     if (state.count > 0) {
                         Spacer(Modifier.height(16.dp))
                         Button(onClick = onLibraryReady) {
-                            Text("Continue to Library")
+                            Text("Continue to Library", maxLines = 1, softWrap = false)
                         }
                     }
                 }
@@ -106,5 +141,92 @@ fun SourceScreen(
                 else -> {}
             }
         }
+    }
+
+    // Pre-scan: pick folders to skip
+    if (pending != null) {
+        val p = pending!!
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelPending() },
+            title = {
+                Text(
+                    "Skip folders before scan?",
+                    maxLines = 2
+                )
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "Source: ${p.displayName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (p.subfolders.isEmpty()) {
+                        Text(
+                            "No subfolders found (or using MediaStore). Scan will include all MP3s. You can exclude folders later in Settings.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    } else {
+                        Text(
+                            "Check folders to skip (not scanned):",
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { viewModel.selectAllSkips() }) {
+                                Text("Select all", maxLines = 1, softWrap = false)
+                            }
+                            TextButton(onClick = { viewModel.clearSkips() }) {
+                                Text("Clear", maxLines = 1, softWrap = false)
+                            }
+                        }
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 280.dp)
+                        ) {
+                            items(p.subfolders) { folder ->
+                                val checked = folder in skips
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = checked,
+                                        onCheckedChange = { viewModel.toggleSkip(folder) }
+                                    )
+                                    Text(
+                                        folder.substringAfterLast('/'),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        softWrap = false,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { viewModel.startScanWithSkips() }) {
+                    Text(
+                        if (skips.isEmpty()) "Scan all" else "Scan (${skips.size} skipped)",
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelPending() }) {
+                    Text("Cancel", maxLines = 1, softWrap = false)
+                }
+            }
+        )
     }
 }

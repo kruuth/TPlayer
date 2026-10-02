@@ -29,5 +29,6 @@ string unknown_artist
 string unknown_title
 string years
 style Theme.TPlayer
+xml automotive_app_desc
 xml backup_rules
 xml data_extraction_rules

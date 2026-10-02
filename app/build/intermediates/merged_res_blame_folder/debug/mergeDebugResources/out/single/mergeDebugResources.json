@@ -1,22 +1,26 @@
 [
     {
-        "merged": "com.grok.tplayer.app-debug-73:/drawable_ic_launcher_foreground.xml.flat",
-        "source": "com.grok.tplayer.app-main-75:/drawable/ic_launcher_foreground.xml"
+        "merged": "C:\\Users\\Xi\\.gradle\\daemon\\9.3.0\\com.grok.tplayer.app-debug-73:\\mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "C:\\Users\\Xi\\.gradle\\daemon\\9.3.0\\com.grok.tplayer.app-main-75:\\mipmap-anydpi-v26\\ic_launcher.xml"
     },
     {
-        "merged": "com.grok.tplayer.app-debug-73:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
-        "source": "com.grok.tplayer.app-main-75:/mipmap-anydpi-v26/ic_launcher_round.xml"
+        "merged": "com.grok.tplayer.app-debug-73:/xml_automotive_app_desc.xml.flat",
+        "source": "com.grok.tplayer.app-main-75:/xml/automotive_app_desc.xml"
     },
     {
-        "merged": "com.grok.tplayer.app-debug-73:/xml_backup_rules.xml.flat",
-        "source": "com.grok.tplayer.app-main-75:/xml/backup_rules.xml"
+        "merged": "C:\\Users\\Xi\\.gradle\\daemon\\9.3.0\\com.grok.tplayer.app-debug-73:\\drawable_ic_launcher_foreground.xml.flat",
+        "source": "C:\\Users\\Xi\\.gradle\\daemon\\9.3.0\\com.grok.tplayer.app-main-75:\\drawable\\ic_launcher_foreground.xml"
     },
     {
-        "merged": "com.grok.tplayer.app-debug-73:/xml_data_extraction_rules.xml.flat",
-        "source": "com.grok.tplayer.app-main-75:/xml/data_extraction_rules.xml"
+        "merged": "C:\\Users\\Xi\\.gradle\\daemon\\9.3.0\\com.grok.tplayer.app-debug-73:\\xml_data_extraction_rules.xml.flat",
+        "source": "C:\\Users\\Xi\\.gradle\\daemon\\9.3.0\\com.grok.tplayer.app-main-75:\\xml\\data_extraction_rules.xml"
     },
     {
-        "merged": "com.grok.tplayer.app-debug-73:/mipmap-anydpi-v26_ic_launcher.xml.flat",
-        "source": "com.grok.tplayer.app-main-75:/mipmap-anydpi-v26/ic_launcher.xml"
+        "merged": "C:\\Users\\Xi\\.gradle\\daemon\\9.3.0\\com.grok.tplayer.app-debug-73:\\xml_backup_rules.xml.flat",
+        "source": "C:\\Users\\Xi\\.gradle\\daemon\\9.3.0\\com.grok.tplayer.app-main-75:\\xml\\backup_rules.xml"
+    },
+    {
+        "merged": "C:\\Users\\Xi\\.gradle\\daemon\\9.3.0\\com.grok.tplayer.app-debug-73:\\mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "C:\\Users\\Xi\\.gradle\\daemon\\9.3.0\\com.grok.tplayer.app-main-75:\\mipmap-anydpi-v26\\ic_launcher_round.xml"
     }
 ]

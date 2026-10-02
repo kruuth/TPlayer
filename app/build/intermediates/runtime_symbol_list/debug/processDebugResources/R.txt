@@ -1087,5 +1087,6 @@ int styleable StateListDrawable_android_enterFadeDuration 4
 int styleable StateListDrawable_android_exitFadeDuration 5
 int[] styleable StateListDrawableItem { 0x01010199 }
 int styleable StateListDrawableItem_android_drawable 0
+int xml automotive_app_desc 0x7f110002
 int xml backup_rules 0x7f110000
 int xml data_extraction_rules 0x7f110001

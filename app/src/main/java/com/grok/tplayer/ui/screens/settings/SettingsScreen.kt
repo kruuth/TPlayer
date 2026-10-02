@@ -1,5 +1,6 @@
 package com.grok.tplayer.ui.screens.settings
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,7 +26,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.grok.tplayer.data.preferences.ThemeMode
-import com.grok.tplayer.data.preferences.toComposeColor
 import com.grok.tplayer.data.scanner.LibraryScanner
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,35 +37,38 @@ fun SettingsScreen(
     val settings by viewModel.settings.collectAsState()
     val folders by viewModel.allFolders.collectAsState()
     val scanState by viewModel.scanProgress.collectAsState()
+    val pending by viewModel.pendingScan.collectAsState()
+    val skips by viewModel.selectedSkips.collectAsState()
+    val listing by viewModel.listingFolders.collectAsState()
+    val status by viewModel.statusMessage.collectAsState()
 
+    // OpenDocumentTree with persistable read permission flags
     val folderLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
+        contract = object : ActivityResultContracts.OpenDocumentTree() {
+            override fun createIntent(context: android.content.Context, input: Uri?): Intent {
+                return super.createIntent(context, input).apply {
+                    addFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+                    )
+                }
+            }
+        }
     ) { uri: Uri? ->
-        uri?.let { viewModel.changeRootAndScan(it) }
+        if (uri != null) {
+            viewModel.prepareCustomRoot(uri)
+        }
     }
 
     val presetButtons = listOf(
-        0xFF6200EEL to "Purple",
-        0xFF1976D2L to "Blue",
-        0xFF388E3CL to "Green",
-        0xFFD32F2FL to "Red",
-        0xFFF57C00L to "Orange",
-        0xFF00897BL to "Teal"
+        0xFF6200EEL, 0xFF1976D2L, 0xFF388E3CL, 0xFFD32F2FL, 0xFFF57C00L, 0xFF00897BL
     )
     val presetBg = listOf(
-        null to "Default",
-        0xFFFFFBFE to "White",
-        0xFFF5F5F5 to "Light gray",
-        0xFF121212 to "Near black",
-        0xFF1A237E to "Navy",
-        0xFF3E2723 to "Brown"
+        null, 0xFFFFFBFE, 0xFFF5F5F5, 0xFF121212, 0xFF1A237E, 0xFF3E2723
     )
     val presetFont = listOf(
-        null to "Default",
-        0xFF1C1B1FL to "Near black",
-        0xFFE6E1E5L to "Near white",
-        0xFFB0BEC5L to "Blue gray",
-        0xFFFFF59DL to "Yellow"
+        null, 0xFF1C1B1FL, 0xFFE6E1E5L, 0xFFB0BEC5L, 0xFFFFF59DL
     )
 
     Scaffold(
@@ -118,7 +121,7 @@ fun SettingsScreen(
                 Text("Button color", style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    presetButtons.forEach { (color, label) ->
+                    presetButtons.forEach { color ->
                         Box(
                             modifier = Modifier
                                 .size(40.dp)
@@ -129,9 +132,8 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurface,
                                     shape = CircleShape
                                 )
-                                .clickable { viewModel.setButtonColor(color) },
-                            contentAlignment = Alignment.Center
-                        ) {}
+                                .clickable { viewModel.setButtonColor(color) }
+                        )
                     }
                 }
             }
@@ -141,7 +143,7 @@ fun SettingsScreen(
                 Text("Background color", style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    presetBg.forEach { (color, _) ->
+                    presetBg.forEach { color ->
                         val bg = color?.let { Color(it) } ?: MaterialTheme.colorScheme.surface
                         Box(
                             modifier = Modifier
@@ -150,9 +152,9 @@ fun SettingsScreen(
                                 .background(bg)
                                 .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
                                 .then(
-                                    if (settings.backgroundColor == color) {
+                                    if (settings.backgroundColor == color)
                                         Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                                    } else Modifier
+                                    else Modifier
                                 )
                                 .clickable { viewModel.setBackgroundColor(color) }
                         )
@@ -165,7 +167,7 @@ fun SettingsScreen(
                 Text("Font color", style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    presetFont.forEach { (color, _) ->
+                    presetFont.forEach { color ->
                         val c = color?.let { Color(it) } ?: MaterialTheme.colorScheme.onSurface
                         Box(
                             modifier = Modifier
@@ -174,9 +176,9 @@ fun SettingsScreen(
                                 .background(c)
                                 .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
                                 .then(
-                                    if (settings.fontColor == color) {
+                                    if (settings.fontColor == color)
                                         Modifier.border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                                    } else Modifier
+                                    else Modifier
                                 )
                                 .clickable { viewModel.setFontColor(color) }
                         )
@@ -190,7 +192,8 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 Button(
                     onClick = { folderLauncher.launch(null) },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !listing && scanState !is LibraryScanner.ScanState.Scanning
                 ) {
                     Icon(Icons.Default.Folder, null)
                     Spacer(Modifier.width(8.dp))
@@ -198,13 +201,29 @@ fun SettingsScreen(
                 }
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
-                    onClick = { viewModel.rescanDefault() },
-                    modifier = Modifier.fillMaxWidth()
+                    onClick = { viewModel.prepareDefaultRescan() },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !listing && scanState !is LibraryScanner.ScanState.Scanning
                 ) {
                     Icon(Icons.Default.Refresh, null)
                     Spacer(Modifier.width(8.dp))
                     Text("Rescan default Music folder", maxLines = 1, softWrap = false)
                 }
+
+                if (listing) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Listing folders…", maxLines = 1, softWrap = false)
+                    }
+                }
+
+                status?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, maxLines = 2, color = MaterialTheme.colorScheme.primary)
+                }
+
                 when (val s = scanState) {
                     is LibraryScanner.ScanState.Scanning -> {
                         Spacer(Modifier.height(8.dp))
@@ -212,13 +231,17 @@ fun SettingsScreen(
                             progress = { if (s.total > 0) s.current.toFloat() / s.total else 0f },
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Text("Scanning ${s.current}/${s.total}", maxLines = 1, softWrap = false)
+                        Text(
+                            "Scanning ${s.current}/${s.total}: ${s.fileName}",
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                     is LibraryScanner.ScanState.Finished -> {
                         Text("Scan done: ${s.count} tracks", maxLines = 1, softWrap = false)
                     }
                     is LibraryScanner.ScanState.Error -> {
-                        Text(s.message, color = MaterialTheme.colorScheme.error, maxLines = 2)
+                        Text(s.message, color = MaterialTheme.colorScheme.error, maxLines = 3)
                     }
                     else -> {}
                 }
@@ -226,14 +249,36 @@ fun SettingsScreen(
 
             item {
                 Spacer(Modifier.height(16.dp))
+                Text("Android Auto / steering", style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Beep on steering controls",
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = settings.steeringBeepEnabled,
+                        onCheckedChange = { viewModel.setSteeringBeep(it) }
+                    )
+                }
                 Text(
-                    "Exclude folders",
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    softWrap = false
+                    "Plays a short beep when play/pause, next, or previous is used from the car.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            item {
+                Spacer(Modifier.height(16.dp))
+                Text("Exclude folders", style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
                 Text(
-                    "Excluded folders are hidden from the Folders tab and ignored on future scans when possible.",
+                    "Hidden from Folders tab and skipped on future scans.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -259,8 +304,7 @@ fun SettingsScreen(
                     colors = ListItemDefaults.colors(
                         containerColor = if (excluded)
                             MaterialTheme.colorScheme.errorContainer
-                        else
-                            Color.Transparent
+                        else Color.Transparent
                     )
                 )
                 HorizontalDivider()
@@ -268,5 +312,74 @@ fun SettingsScreen(
 
             item { Spacer(Modifier.height(32.dp)) }
         }
+    }
+
+    // Pre-scan skip dialog (same as Source screen)
+    if (pending != null) {
+        val p = pending!!
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelPending() },
+            title = { Text("Skip folders before scan?", maxLines = 2) },
+            text = {
+                Column(Modifier.fillMaxWidth()) {
+                    Text(
+                        "Source: ${p.displayName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    if (p.subfolders.isEmpty()) {
+                        Text(
+                            "No subfolders listed. Scan will include all MP3s (you can exclude later below).",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    } else {
+                        Text("Check folders to skip:", style = MaterialTheme.typography.bodyMedium)
+                        Row {
+                            TextButton(onClick = { viewModel.selectAllSkips() }) {
+                                Text("Select all", maxLines = 1, softWrap = false)
+                            }
+                            TextButton(onClick = { viewModel.clearSkips() }) {
+                                Text("Clear", maxLines = 1, softWrap = false)
+                            }
+                        }
+                        LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+                            items(p.subfolders) { folder ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Checkbox(
+                                        checked = folder in skips,
+                                        onCheckedChange = { viewModel.toggleSkip(folder) }
+                                    )
+                                    Text(
+                                        folder.substringAfterLast('/'),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { viewModel.startScanWithSkips() }) {
+                    Text(
+                        if (skips.isEmpty()) "Scan all" else "Scan (${skips.size} skipped)",
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelPending() }) {
+                    Text("Cancel", maxLines = 1, softWrap = false)
+                }
+            }
+        )
     }
 }

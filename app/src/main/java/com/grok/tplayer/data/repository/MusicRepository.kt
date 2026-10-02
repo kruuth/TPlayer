@@ -1,5 +1,6 @@
 package com.grok.tplayer.data.repository
 
+import android.net.Uri
 import com.grok.tplayer.data.db.TrackDao
 import com.grok.tplayer.data.model.AlbumArt
 import com.grok.tplayer.data.model.SourceFolder
@@ -33,7 +34,15 @@ class MusicRepository @Inject constructor(
     suspend fun getArtsForTrack(trackId: Long): List<AlbumArt> = trackDao.getArtsForTrack(trackId)
     suspend fun getTrackCount(): Int = trackDao.getTrackCount()
 
-    suspend fun scanDefault() = scanner.scanDefaultMusicFolder()
-    suspend fun scanTree(uri: android.net.Uri, name: String, isDefault: Boolean = false) =
-        scanner.scanTree(uri, name, isDefault)
+    suspend fun listSubfolders(uri: Uri): List<String> = scanner.listSubfolders(uri)
+
+    suspend fun scanDefault(skipFolders: Set<String> = emptySet()) =
+        scanner.scanDefaultMusicFolder(skipFolders)
+
+    suspend fun scanTree(
+        uri: Uri,
+        name: String,
+        isDefault: Boolean = false,
+        skipFolders: Set<String> = emptySet()
+    ) = scanner.scanTree(uri, name, isDefault, skipFolders)
 }

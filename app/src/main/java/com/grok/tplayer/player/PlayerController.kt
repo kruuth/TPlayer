@@ -264,22 +264,77 @@ class PlayerController @Inject constructor(
         }
     }
 
+
+    /** Skip to first track of the next distinct folder in the queue. */
+    fun nextFolder() {
+        if (currentQueue.isEmpty()) return
+        val currentFolder = currentQueue.getOrNull(currentIndex)?.folderPath
+        var i = currentIndex + 1
+        while (i < currentQueue.size) {
+            if (currentQueue[i].folderPath != currentFolder) {
+                currentIndex = i
+                controller?.seekTo(i, 0L)
+                _currentTrack.value = currentQueue[i]
+                _duration.value = currentQueue[i].durationMs
+                speedIndex = 0
+                applySpeed()
+                controller?.play()
+                return
+            }
+            i++
+        }
+        // wrap: first folder different from current
+        playNext()
+    }
+
+    fun previousFolder() {
+        if (currentQueue.isEmpty()) return
+        val currentFolder = currentQueue.getOrNull(currentIndex)?.folderPath
+        var i = currentIndex - 1
+        while (i >= 0) {
+            if (currentQueue[i].folderPath != currentFolder) {
+                // land on first track of that folder
+                val folder = currentQueue[i].folderPath
+                while (i > 0 && currentQueue[i - 1].folderPath == folder) i--
+                currentIndex = i
+                controller?.seekTo(i, 0L)
+                _currentTrack.value = currentQueue[i]
+                _duration.value = currentQueue[i].durationMs
+                speedIndex = 0
+                applySpeed()
+                controller?.play()
+                return
+            }
+            i--
+        }
+        playPrevious()
+    }
+
+    fun seekBySeconds(seconds: Int) {
+        seekRelative(seconds * 1000L)
+    }
+
     fun seekRelative(deltaMs: Long) {
         val newPos = (_position.value + deltaMs).coerceIn(0, _duration.value.coerceAtLeast(0))
         seekTo(newPos)
     }
 
     private fun trackToMediaItem(track: Track): MediaItem {
+        val metaBuilder = MediaMetadata.Builder()
+            .setTitle(track.displayTitle)
+            .setArtist(track.displayArtist)
+            .setAlbumTitle(track.displayAlbum)
+        // Attach cached cover so notification / lock screen show artwork
+        track.albumArtPath?.let { path ->
+            val file = java.io.File(path)
+            if (file.exists()) {
+                metaBuilder.setArtworkUri(android.net.Uri.fromFile(file))
+            }
+        }
         return MediaItem.Builder()
             .setUri(track.uri)
             .setMediaId(track.id.toString())
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(track.displayTitle)
-                    .setArtist(track.displayArtist)
-                    .setAlbumTitle(track.displayAlbum)
-                    .build()
-            )
+            .setMediaMetadata(metaBuilder.build())
             .build()
     }
 }
