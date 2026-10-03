@@ -110,8 +110,7 @@ class LibraryScanner @Inject constructor(
 
             val total = mp3Files.size
             if (total == 0) {
-                trackDao.clearAllTracks()
-                _scanProgress.value = ScanState.Finished(0)
+                _scanProgress.value = ScanState.Finished(trackDao.getTrackCount())
                 return@withContext
             }
 
@@ -124,9 +123,11 @@ class LibraryScanner @Inject constructor(
                 metadataExtractor.extract(doc.uri, fileName, folderPath)?.let { tracks.add(it) }
             }
 
-            trackDao.clearAllTracks()
+            // Merge into library (do not wipe other folders/sources)
+            // Refresh paths under this root label so removed files disappear
+            trackDao.deleteTracksUnderFolder(rootLabel)
             trackDao.insertTracks(tracks)
-            _scanProgress.value = ScanState.Finished(tracks.size)
+            _scanProgress.value = ScanState.Finished(trackDao.getTrackCount())
         } catch (e: Exception) {
             e.printStackTrace()
             _scanProgress.value = ScanState.Error(e.message ?: "Scan failed")
@@ -208,7 +209,7 @@ class LibraryScanner @Inject constructor(
                     }
                 }
 
-                trackDao.clearAllTracks()
+                // Merge MediaStore results (REPLACE by unique uri)
                 trackDao.insertTracks(tracks)
                 trackDao.insertSource(
                     SourceFolder(
@@ -218,7 +219,7 @@ class LibraryScanner @Inject constructor(
                         lastScanned = System.currentTimeMillis()
                     )
                 )
-                _scanProgress.value = ScanState.Finished(tracks.size)
+                _scanProgress.value = ScanState.Finished(trackDao.getTrackCount())
             } catch (e: Exception) {
                 e.printStackTrace()
                 _scanProgress.value = ScanState.Error(e.message ?: "MediaStore scan failed")

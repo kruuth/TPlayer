@@ -53,8 +53,18 @@ interface TrackDao {
     @Query("DELETE FROM tracks")
     suspend fun clearAllTracks()
 
+    /** Remove tracks whose folder path is under [prefix] (for re-scan of one tree). */
+    @Query("DELETE FROM tracks WHERE folderPath = :prefix OR folderPath LIKE :prefix || '/%'")
+    suspend fun deleteTracksUnderFolder(prefix: String)
+
+    @Query("SELECT * FROM tracks WHERE uri = :uri LIMIT 1")
+    suspend fun getTrackByUri(uri: String): Track?
+
     @Query("SELECT COUNT(*) FROM tracks")
     suspend fun getTrackCount(): Int
+
+    @Query("SELECT * FROM source_folders")
+    suspend fun getSourcesList(): List<SourceFolder>
 
     // Album Arts
     @Insert(onConflict = OnConflictStrategy.REPLACE)

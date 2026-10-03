@@ -105,6 +105,13 @@ fun SourceScreen(
 
             Spacer(Modifier.height(32.dp))
 
+            if (trackCount > 0 && scanState !is LibraryScanner.ScanState.Scanning) {
+                TextButton(onClick = onLibraryReady) {
+                    Text("Open Library ($trackCount tracks)", maxLines = 1, softWrap = false)
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+
             if (listing) {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(8.dp))

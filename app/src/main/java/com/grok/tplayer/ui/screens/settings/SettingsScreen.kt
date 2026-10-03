@@ -260,7 +260,8 @@ fun SettingsScreen(
                         "Beep on steering controls",
                         maxLines = 1,
                         softWrap = false,
-                        modifier = Modifier.weight(1f)
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(0.75f)
                     )
                     Switch(
                         checked = settings.steeringBeepEnabled,
@@ -270,7 +271,9 @@ fun SettingsScreen(
                 Text(
                     "Plays a short beep when play/pause, next, or previous is used from the car.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 

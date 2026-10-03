@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +25,8 @@ fun TrackListScreen(
     playerController: PlayerController,
     onTrackSelected: () -> Unit,
     onBack: () -> Unit,
+    onOpenSettings: () -> Unit = {},
+    onOpenPlayer: () -> Unit = {},
     viewModel: TrackListViewModel = hiltViewModel()
 ) {
     LaunchedEffect(mode, key) {
@@ -69,6 +73,12 @@ fun TrackListScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onOpenPlayer) {
+                        Icon(Icons.Default.PlayArrow, "Now Playing")
+                    }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, "Settings")
+                    }
                     IconButton(onClick = { showSortMenu = true }) {
                         Icon(Icons.Default.Sort, "Sort")
                     }

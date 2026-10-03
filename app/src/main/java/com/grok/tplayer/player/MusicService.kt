@@ -26,6 +26,7 @@ import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import com.grok.tplayer.MainActivity
 import com.grok.tplayer.data.preferences.UserPreferences
 import com.grok.tplayer.data.repository.MusicRepository
@@ -35,20 +36,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
+/**
+ * Phone notification + Android Auto library/playback.
+ * Does NOT inject PlayerController (avoids circular Hilt / deadlocks).
+ * Phone UI controls the same ExoPlayer through MediaController.
+ */
 @UnstableApi
 @AndroidEntryPoint
 class MusicService : MediaLibraryService() {
 
     @Inject lateinit var musicRepository: MusicRepository
     @Inject lateinit var userPreferences: UserPreferences
-    @Inject lateinit var playerController: PlayerController
 
     private var librarySession: MediaLibrarySession? = null
     private lateinit var player: ExoPlayer
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var holdJob: android.os.Handler? = null
 
     private var lastNextDown = 0L
@@ -57,6 +62,10 @@ class MusicService : MediaLibraryService() {
     private var prevTapCount = 0
     private var nextHolding = false
     private var prevHolding = false
+
+    // Queue for folder skip / next-previous on steering
+    private var queue: List<com.grok.tplayer.data.model.Track> = emptyList()
+    private var queueIndex = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -129,7 +138,79 @@ class MusicService : MediaLibraryService() {
         }
     }
 
+    private fun seekByMs(delta: Long) {
+        val pos = player.currentPosition + delta
+        player.seekTo(pos.coerceAtLeast(0L))
+    }
+
+    private fun playNextInQueue() {
+        if (queue.isEmpty()) {
+            player.seekToNextMediaItem()
+            return
+        }
+        queueIndex = (queueIndex + 1).coerceAtMost(queue.lastIndex)
+        if (queueIndex < player.mediaItemCount) {
+            player.seekTo(queueIndex, 0L)
+            player.play()
+        } else {
+            player.seekToNextMediaItem()
+        }
+    }
+
+    private fun playPrevInQueue() {
+        if (player.currentPosition > 3000) {
+            player.seekTo(0)
+            return
+        }
+        if (queue.isEmpty()) {
+            player.seekToPreviousMediaItem()
+            return
+        }
+        queueIndex = (queueIndex - 1).coerceAtLeast(0)
+        player.seekTo(queueIndex, 0L)
+        player.play()
+    }
+
+    private fun nextFolderInQueue() {
+        if (queue.isEmpty()) {
+            playNextInQueue(); return
+        }
+        val cur = queue.getOrNull(queueIndex)?.folderPath
+        var i = queueIndex + 1
+        while (i < queue.size) {
+            if (queue[i].folderPath != cur) {
+                queueIndex = i
+                player.seekTo(i, 0L)
+                player.play()
+                return
+            }
+            i++
+        }
+        playNextInQueue()
+    }
+
+    private fun prevFolderInQueue() {
+        if (queue.isEmpty()) {
+            playPrevInQueue(); return
+        }
+        val cur = queue.getOrNull(queueIndex)?.folderPath
+        var i = queueIndex - 1
+        while (i >= 0) {
+            if (queue[i].folderPath != cur) {
+                val folder = queue[i].folderPath
+                while (i > 0 && queue[i - 1].folderPath == folder) i--
+                queueIndex = i
+                player.seekTo(i, 0L)
+                player.play()
+                return
+            }
+            i--
+        }
+        playPrevInQueue()
+    }
+
     private inner class LibraryCallback : MediaLibrarySession.Callback {
+
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo
@@ -151,10 +232,10 @@ class MusicService : MediaLibraryService() {
             args: Bundle
         ): ListenableFuture<SessionResult> {
             when (customCommand.customAction) {
-                CMD_JUMP_BACK -> playerController.seekBySeconds(-10)
-                CMD_JUMP_FORWARD -> playerController.seekBySeconds(10)
-                CMD_NEXT_FOLDER -> playerController.nextFolder()
-                CMD_PREV_FOLDER -> playerController.previousFolder()
+                CMD_JUMP_BACK -> seekByMs(-10_000)
+                CMD_JUMP_FORWARD -> seekByMs(10_000)
+                CMD_NEXT_FOLDER -> nextFolderInQueue()
+                CMD_PREV_FOLDER -> prevFolderInQueue()
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
@@ -175,20 +256,116 @@ class MusicService : MediaLibraryService() {
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_HEADSETHOOK -> {
                     if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                         beepIfEnabled()
-                        playerController.togglePlayPause()
+                        if (player.isPlaying) player.pause() else player.play()
                         return true
                     }
                 }
                 KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                    handleNextMediaButton(event)
-                    return true
+                    handleNextMediaButton(event); return true
                 }
                 KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                    handlePrevMediaButton(event)
-                    return true
+                    handlePrevMediaButton(event); return true
                 }
             }
             return super.onMediaButtonEvent(session, controllerInfo, intent)
+        }
+
+        /**
+         * Critical for Android Auto: resolve media IDs and return playable items.
+         * Without this, AA hangs on "Getting your selection".
+         */
+        override fun onSetMediaItems(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: List<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            scope.launch {
+                try {
+                    val resolved = withContext(Dispatchers.IO) {
+                        resolveMediaItems(mediaItems)
+                    }
+                    if (resolved.isNotEmpty()) {
+                        queue = withContext(Dispatchers.IO) {
+                            resolved.mapNotNull { item ->
+                                val tid = item.mediaId.removePrefix("track:").toLongOrNull()
+                                tid?.let { musicRepository.getTrackById(it) }
+                            }
+                        }
+                        queueIndex = startIndex.coerceIn(0, (resolved.size - 1).coerceAtLeast(0))
+                    }
+                    future.set(
+                        MediaSession.MediaItemsWithStartPosition(
+                            resolved,
+                            startIndex.coerceIn(0, (resolved.size - 1).coerceAtLeast(0)),
+                            startPositionMs
+                        )
+                    )
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    future.set(
+                        MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L)
+                    )
+                }
+            }
+            return future
+        }
+
+        override fun onAddMediaItems(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: List<MediaItem>
+        ): ListenableFuture<List<MediaItem>> {
+            val future = SettableFuture.create<List<MediaItem>>()
+            scope.launch {
+                try {
+                    val resolved = withContext(Dispatchers.IO) { resolveMediaItems(mediaItems) }
+                    future.set(resolved)
+                } catch (e: Exception) {
+                    future.set(emptyList())
+                }
+            }
+            return future
+        }
+
+        private suspend fun resolveMediaItems(mediaItems: List<MediaItem>): List<MediaItem> {
+            val out = mutableListOf<MediaItem>()
+            for (item in mediaItems) {
+                val id = item.mediaId
+                when {
+                    id.startsWith("track:") -> {
+                        val trackId = id.removePrefix("track:").toLongOrNull() ?: continue
+                        val track = musicRepository.getTrackById(trackId) ?: continue
+                        out.add(trackToPlayableItem(track))
+                    }
+                    id == ID_NOW_PLAYING -> {
+                        // Keep current player items if any
+                        if (player.mediaItemCount > 0) {
+                            for (i in 0 until player.mediaItemCount) {
+                                out.add(player.getMediaItemAt(i))
+                            }
+                        }
+                    }
+                    id.startsWith("$ID_ARTISTS/") -> {
+                        val artist = id.removePrefix("$ID_ARTISTS/")
+                        musicRepository.getTracksByArtist(artist).first()
+                            .forEach { out.add(trackToPlayableItem(it)) }
+                    }
+                    id.startsWith("$ID_FOLDERS/") -> {
+                        val folder = id.removePrefix("$ID_FOLDERS/")
+                        musicRepository.getTracksByFolder(folder).first()
+                            .forEach { out.add(trackToPlayableItem(it)) }
+                    }
+                    id == ID_ALL -> {
+                        musicRepository.getAllTracks().first()
+                            .forEach { out.add(trackToPlayableItem(it)) }
+                    }
+                    item.localConfiguration?.uri != null -> out.add(item)
+                }
+            }
+            return out
         }
 
         override fun onGetLibraryRoot(
@@ -217,37 +394,59 @@ class MusicService : MediaLibraryService() {
             pageSize: Int,
             params: MediaLibraryService.LibraryParams?
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-            return try {
-                val items = runBlocking { buildChildren(parentId) }
-                Futures.immediateFuture(LibraryResult.ofItemList(items, params))
-            } catch (_: Exception) {
-                Futures.immediateFuture(LibraryResult.ofError(SessionResult.RESULT_ERROR_UNKNOWN))
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            scope.launch {
+                try {
+                    val items = withContext(Dispatchers.IO) { buildChildren(parentId) }
+                    future.set(LibraryResult.ofItemList(items, params))
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    future.set(LibraryResult.ofError(SessionResult.RESULT_ERROR_IO))
+                }
             }
+            return future
         }
 
         private suspend fun buildChildren(parentId: String): List<MediaItem> {
             return when {
-                parentId == ROOT_ID -> listOf(
-                    folderItem(ID_ARTISTS, "Artists"),
-                    folderItem(ID_FOLDERS, "Folders"),
-                    folderItem(ID_ALL, "All Tracks")
-                )
+                parentId == ROOT_ID -> {
+                    val list = mutableListOf<MediaItem>()
+                    // Now Playing shortcut at top of AA browse
+                    if (player.mediaItemCount > 0 || player.currentMediaItem != null) {
+                        list.add(
+                            MediaItem.Builder()
+                                .setMediaId(ID_NOW_PLAYING)
+                                .setMediaMetadata(
+                                    MediaMetadata.Builder()
+                                        .setTitle("Now Playing")
+                                        .setIsBrowsable(false)
+                                        .setIsPlayable(true)
+                                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                                        .build()
+                                ).build()
+                        )
+                    }
+                    list.add(folderItem(ID_ARTISTS, "Artists"))
+                    list.add(folderItem(ID_FOLDERS, "Folders"))
+                    list.add(folderItem(ID_ALL, "All Tracks"))
+                    list
+                }
                 parentId == ID_ARTISTS ->
                     musicRepository.getAllArtists().first().map { folderItem("$ID_ARTISTS/$it", it) }
                 parentId.startsWith("$ID_ARTISTS/") -> {
                     val artist = parentId.removePrefix("$ID_ARTISTS/")
-                    musicRepository.getTracksByArtist(artist).first().map { trackItem(it) }
+                    musicRepository.getTracksByArtist(artist).first().map { trackBrowseItem(it) }
                 }
                 parentId == ID_FOLDERS ->
                     musicRepository.getAllFolders().first().map {
-                        folderItem("$ID_FOLDERS/$it", it.substringAfterLast('/'))
+                        folderItem("$ID_FOLDERS/$it", it.substringAfterLast('/').ifBlank { it })
                     }
                 parentId.startsWith("$ID_FOLDERS/") -> {
                     val folder = parentId.removePrefix("$ID_FOLDERS/")
-                    musicRepository.getTracksByFolder(folder).first().map { trackItem(it) }
+                    musicRepository.getTracksByFolder(folder).first().map { trackBrowseItem(it) }
                 }
                 parentId == ID_ALL ->
-                    musicRepository.getAllTracks().first().map { trackItem(it) }
+                    musicRepository.getAllTracks().first().map { trackBrowseItem(it) }
                 else -> emptyList()
             }
         }
@@ -263,7 +462,7 @@ class MusicService : MediaLibraryService() {
                     .build()
             ).build()
 
-        private fun trackItem(track: com.grok.tplayer.data.model.Track): MediaItem {
+        private fun trackBrowseItem(track: com.grok.tplayer.data.model.Track): MediaItem {
             val meta = MediaMetadata.Builder()
                 .setTitle(track.displayTitle)
                 .setArtist(track.displayArtist)
@@ -281,6 +480,25 @@ class MusicService : MediaLibraryService() {
                 .setMediaMetadata(meta.build())
                 .build()
         }
+
+        private fun trackToPlayableItem(track: com.grok.tplayer.data.model.Track): MediaItem {
+            val meta = MediaMetadata.Builder()
+                .setTitle(track.displayTitle)
+                .setArtist(track.displayArtist)
+                .setAlbumTitle(track.displayAlbum)
+                .setIsBrowsable(false)
+                .setIsPlayable(true)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            track.albumArtPath?.let { path ->
+                val f = java.io.File(path)
+                if (f.exists()) meta.setArtworkUri(android.net.Uri.fromFile(f))
+            }
+            return MediaItem.Builder()
+                .setMediaId("track:${track.id}")
+                .setUri(android.net.Uri.parse(track.uri))
+                .setMediaMetadata(meta.build())
+                .build()
+        }
     }
 
     private fun handleNextMediaButton(event: KeyEvent) {
@@ -291,11 +509,11 @@ class MusicService : MediaLibraryService() {
             holdJob?.postDelayed({
                 nextHolding = true
                 beepIfEnabled()
-                playerController.seekBySeconds(10)
+                seekByMs(10_000)
                 val r = object : Runnable {
                     override fun run() {
                         if (nextHolding) {
-                            playerController.seekBySeconds(10)
+                            seekByMs(10_000)
                             holdJob?.postDelayed(this, 2000L)
                         }
                     }
@@ -313,9 +531,9 @@ class MusicService : MediaLibraryService() {
                 nextTapCount++
                 holdJob?.postDelayed({
                     if (nextTapCount >= 2) {
-                        beepIfEnabled(); playerController.nextFolder()
+                        beepIfEnabled(); nextFolderInQueue()
                     } else if (nextTapCount == 1) {
-                        beepIfEnabled(); playerController.playNext()
+                        beepIfEnabled(); playNextInQueue()
                     }
                     nextTapCount = 0
                 }, 350L)
@@ -331,11 +549,11 @@ class MusicService : MediaLibraryService() {
             holdJob?.postDelayed({
                 prevHolding = true
                 beepIfEnabled()
-                playerController.seekBySeconds(-10)
+                seekByMs(-10_000)
                 val r = object : Runnable {
                     override fun run() {
                         if (prevHolding) {
-                            playerController.seekBySeconds(-10)
+                            seekByMs(-10_000)
                             holdJob?.postDelayed(this, 2000L)
                         }
                     }
@@ -353,9 +571,9 @@ class MusicService : MediaLibraryService() {
                 prevTapCount++
                 holdJob?.postDelayed({
                     if (prevTapCount >= 2) {
-                        beepIfEnabled(); playerController.previousFolder()
+                        beepIfEnabled(); prevFolderInQueue()
                     } else if (prevTapCount == 1) {
-                        beepIfEnabled(); playerController.playPrevious()
+                        beepIfEnabled(); playPrevInQueue()
                     }
                     prevTapCount = 0
                 }, 350L)
@@ -377,6 +595,7 @@ class MusicService : MediaLibraryService() {
         const val ID_ARTISTS = "artists"
         const val ID_FOLDERS = "folders"
         const val ID_ALL = "all"
+        const val ID_NOW_PLAYING = "now_playing"
         const val CMD_JUMP_BACK = "tplayer.jump_back"
         const val CMD_JUMP_FORWARD = "tplayer.jump_forward"
         const val CMD_NEXT_FOLDER = "tplayer.next_folder"

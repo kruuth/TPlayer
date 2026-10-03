@@ -61,13 +61,16 @@ fun AppNavGraph(
                 key = key,
                 playerController = playerController,
                 onTrackSelected = { navController.navigate(Routes.NOW_PLAYING) },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenPlayer = { navController.navigate(Routes.NOW_PLAYING) }
             )
         }
         composable(Routes.NOW_PLAYING) {
             NowPlayingScreen(
                 playerController = playerController,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenSettings = { navController.navigate(Routes.SETTINGS) }
             )
         }
         composable(Routes.SETTINGS) {
