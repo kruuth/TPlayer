@@ -20,6 +20,7 @@ fun BrowseScreen(
     onOpenList: (mode: String, key: String) -> Unit,
     onOpenPlayer: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenSearch: () -> Unit = {},
     viewModel: BrowseViewModel = hiltViewModel()
 ) {
     val artists by viewModel.artists.collectAsState()
@@ -82,11 +83,14 @@ fun BrowseScreen(
                     )
                 },
                 actions = {
+                    IconButton(onClick = onOpenSearch) {
+                        Icon(Icons.Default.Search, contentDescription = "Search")
+                    }
                     IconButton(onClick = onOpenPlayer) {
                         Icon(Icons.Default.PlayArrow, contentDescription = "Now Playing")
                     }
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(Icons.Default.MoreVert, contentDescription = "Settings")
                     }
                 }
             )

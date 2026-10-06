@@ -26,6 +26,21 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE id = :id")
     suspend fun getTrackById(id: Long): Track?
 
+    @Query("""
+        SELECT * FROM tracks WHERE
+            title LIKE '%' || :q || '%' COLLATE NOCASE OR
+            artist LIKE '%' || :q || '%' COLLATE NOCASE OR
+            album LIKE '%' || :q || '%' COLLATE NOCASE OR
+            fileName LIKE '%' || :q || '%' COLLATE NOCASE OR
+            folderPath LIKE '%' || :q || '%' COLLATE NOCASE
+        ORDER BY title COLLATE NOCASE ASC
+        LIMIT 200
+    """)
+    fun searchTracks(q: String): Flow<List<Track>>
+
+    @Query("SELECT * FROM tracks ORDER BY title COLLATE NOCASE ASC")
+    suspend fun getAllTracksList(): List<Track>
+
     @Query("SELECT DISTINCT artist FROM tracks WHERE artist IS NOT NULL AND artist != '' ORDER BY artist COLLATE NOCASE ASC")
     fun getAllArtists(): Flow<List<String>>
 

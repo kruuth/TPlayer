@@ -84,9 +84,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        playerController.savePositionNow()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         if (isFinishing) {
+            playerController.savePositionNow()
             playerController.disconnect()
         }
     }

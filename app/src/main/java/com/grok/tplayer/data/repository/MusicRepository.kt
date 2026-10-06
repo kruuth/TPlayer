@@ -29,6 +29,8 @@ class MusicRepository @Inject constructor(
     fun getAllFolders(): Flow<List<String>> = trackDao.getAllFolders()
     fun getTracksByFolder(folder: String): Flow<List<Track>> = trackDao.getTracksByFolder(folder)
     fun getSources(): Flow<List<SourceFolder>> = trackDao.getSources()
+    fun searchTracks(q: String): Flow<List<Track>> = trackDao.searchTracks(q)
+    suspend fun getAllTracksList(): List<Track> = trackDao.getAllTracksList()
 
     suspend fun getTrackById(id: Long): Track? = trackDao.getTrackById(id)
     suspend fun getArtsForTrack(trackId: Long): List<AlbumArt> = trackDao.getArtsForTrack(trackId)

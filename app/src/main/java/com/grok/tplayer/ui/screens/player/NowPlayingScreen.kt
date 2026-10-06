@@ -6,8 +6,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -42,7 +44,9 @@ import kotlin.math.atan2
 fun NowPlayingScreen(
     playerController: PlayerController,
     onBack: () -> Unit,
-    onOpenSettings: () -> Unit = {}
+    onOpenLibrary: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+    onOpenSearch: () -> Unit = {}
 ) {
     val track by playerController.currentTrack.collectAsState()
     val isPlaying by playerController.isPlaying.collectAsState()
@@ -131,20 +135,18 @@ fun NowPlayingScreen(
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
+                CenterAlignedTopAppBar(
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                         containerColor = Color.Transparent,
                         titleContentColor = Color.White,
                         navigationIconContentColor = Color.White,
                         actionIconContentColor = Color.White
                     ),
                     title = {
-                        Text(
-                            "Now Playing",
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            softWrap = false
-                        )
+                        // Folder in the top middle → library browse
+                        IconButton(onClick = onOpenLibrary) {
+                            Icon(Icons.Default.Folder, "Library / folders")
+                        }
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
@@ -152,8 +154,11 @@ fun NowPlayingScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = onOpenSearch) {
+                            Icon(Icons.Default.Search, "Search")
+                        }
                         IconButton(onClick = onOpenSettings) {
-                            Icon(Icons.Default.Settings, "Settings")
+                            Icon(Icons.Default.MoreVert, "Settings")
                         }
                     }
                 )
@@ -331,19 +336,61 @@ fun NowPlayingScreen(
                     )
                 }
 
-                val progress = if (duration > 0) position.toFloat() / duration else 0f
-                Slider(
-                    value = progress.coerceIn(0f, 1f),
-                    onValueChange = { fraction ->
-                        playerController.seekTo((fraction * duration).toLong())
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = Color.White,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                val progress = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+
+                // Straight progress line (no Material Slider "squiggle")
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(28.dp)
+                        .padding(horizontal = 4.dp)
+                        .pointerInput(duration) {
+                            detectTapGestures { offset ->
+                                if (duration > 0) {
+                                    val frac = (offset.x / size.width).coerceIn(0f, 1f)
+                                    playerController.seekTo((frac * duration).toLong())
+                                }
+                            }
+                            detectDragGestures { change, _ ->
+                                if (duration > 0) {
+                                    val frac = (change.position.x / size.width).coerceIn(0f, 1f)
+                                    playerController.seekTo((frac * duration).toLong())
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    // Background track
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White.copy(alpha = 0.28f))
                     )
-                )
+                    // Filled progress
+                    Box(
+                        Modifier
+                            .fillMaxWidth(progress)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(Color.White)
+                    )
+                    // Thumb
+                    Box(
+                        Modifier
+                            .padding(start = ((progress * 1000).toInt().coerceIn(0, 1000) / 1000f).let { /* placed via offset below */ 0.dp })
+                    )
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val y = size.height / 2f
+                        val x = progress * size.width
+                        drawCircle(
+                            color = Color.White,
+                            radius = 7.dp.toPx(),
+                            center = Offset(x, y)
+                        )
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -364,37 +411,43 @@ fun NowPlayingScreen(
                     )
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
 
-                // Controls: prev, rewind, play/pause, FF, next — no Stop
+                // Larger on-screen transport controls
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp),
+                        .padding(bottom = 16.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { playerController.playPrevious() }) {
+                    IconButton(
+                        onClick = { playerController.playPrevious() },
+                        modifier = Modifier.size(56.dp)
+                    ) {
                         Icon(
                             Icons.Default.SkipPrevious,
                             "Previous",
-                            modifier = Modifier.size(36.dp),
+                            modifier = Modifier.size(44.dp),
                             tint = Color.White
                         )
                     }
-                    IconButton(onClick = { playerController.cycleRewind() }) {
+                    IconButton(
+                        onClick = { playerController.cycleRewind() },
+                        modifier = Modifier.size(52.dp)
+                    ) {
                         Icon(
                             Icons.Default.FastRewind,
                             "Rewind",
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(40.dp),
                             tint = Color.White
                         )
                     }
                     FilledIconButton(
                         onClick = { playerController.togglePlayPause() },
-                        modifier = Modifier.size(64.dp),
+                        modifier = Modifier.size(76.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = Color.White.copy(alpha = 0.2f),
+                            containerColor = Color.White.copy(alpha = 0.22f),
                             contentColor = Color.White
                         )
                     ) {
@@ -402,22 +455,28 @@ fun NowPlayingScreen(
                             if (isPlaying && !isRewinding) Icons.Default.Pause
                             else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(44.dp)
                         )
                     }
-                    IconButton(onClick = { playerController.cycleFastForward() }) {
+                    IconButton(
+                        onClick = { playerController.cycleFastForward() },
+                        modifier = Modifier.size(52.dp)
+                    ) {
                         Icon(
                             Icons.Default.FastForward,
                             "Fast Forward",
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(40.dp),
                             tint = Color.White
                         )
                     }
-                    IconButton(onClick = { playerController.playNext() }) {
+                    IconButton(
+                        onClick = { playerController.playNext() },
+                        modifier = Modifier.size(56.dp)
+                    ) {
                         Icon(
                             Icons.Default.SkipNext,
                             "Next",
-                            modifier = Modifier.size(36.dp),
+                            modifier = Modifier.size(44.dp),
                             tint = Color.White
                         )
                     }

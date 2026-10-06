@@ -341,10 +341,16 @@ class MusicService : MediaLibraryService() {
                         out.add(trackToPlayableItem(track))
                     }
                     id == ID_NOW_PLAYING -> {
-                        // Keep current player items if any
                         if (player.mediaItemCount > 0) {
                             for (i in 0 until player.mediaItemCount) {
                                 out.add(player.getMediaItemAt(i))
+                            }
+                        } else if (queue.isNotEmpty()) {
+                            queue.forEach { out.add(trackToPlayableItem(it)) }
+                        } else {
+                            // Fallback: all tracks so AA can still play something
+                            musicRepository.getAllTracks().first().forEach {
+                                out.add(trackToPlayableItem(it))
                             }
                         }
                     }
@@ -373,6 +379,10 @@ class MusicService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             params: MediaLibraryService.LibraryParams?
         ): ListenableFuture<LibraryResult<MediaItem>> {
+            val extras = Bundle().apply {
+                putInt("android.media.browse.CONTENT_STYLE_BROWSABLE_HINT", 1)
+                putInt("android.media.browse.CONTENT_STYLE_PLAYABLE_HINT", 1)
+            }
             val root = MediaItem.Builder()
                 .setMediaId(ROOT_ID)
                 .setMediaMetadata(
@@ -381,9 +391,13 @@ class MusicService : MediaLibraryService() {
                         .setIsBrowsable(true)
                         .setIsPlayable(false)
                         .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                        .setExtras(extras)
                         .build()
                 ).build()
-            return Futures.immediateFuture(LibraryResult.ofItem(root, params))
+            val outParams = MediaLibraryService.LibraryParams.Builder()
+                .setExtras(extras)
+                .build()
+            return Futures.immediateFuture(LibraryResult.ofItem(root, outParams))
         }
 
         override fun onGetChildren(
@@ -410,26 +424,22 @@ class MusicService : MediaLibraryService() {
         private suspend fun buildChildren(parentId: String): List<MediaItem> {
             return when {
                 parentId == ROOT_ID -> {
-                    val list = mutableListOf<MediaItem>()
-                    // Now Playing shortcut at top of AA browse
-                    if (player.mediaItemCount > 0 || player.currentMediaItem != null) {
-                        list.add(
-                            MediaItem.Builder()
-                                .setMediaId(ID_NOW_PLAYING)
-                                .setMediaMetadata(
-                                    MediaMetadata.Builder()
-                                        .setTitle("Now Playing")
-                                        .setIsBrowsable(false)
-                                        .setIsPlayable(true)
-                                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                                        .build()
-                                ).build()
-                        )
-                    }
-                    list.add(folderItem(ID_ARTISTS, "Artists"))
-                    list.add(folderItem(ID_FOLDERS, "Folders"))
-                    list.add(folderItem(ID_ALL, "All Tracks"))
-                    list
+                    // Always start AA browse with library sections + Now Playing
+                    listOf(
+                        folderItem(ID_ARTISTS, "Artists"),
+                        folderItem(ID_FOLDERS, "Folders"),
+                        folderItem(ID_ALL, "All Tracks"),
+                        MediaItem.Builder()
+                            .setMediaId(ID_NOW_PLAYING)
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setTitle("Now Playing")
+                                    .setIsBrowsable(false)
+                                    .setIsPlayable(true)
+                                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                                    .build()
+                            ).build()
+                    )
                 }
                 parentId == ID_ARTISTS ->
                     musicRepository.getAllArtists().first().map { folderItem("$ID_ARTISTS/$it", it) }
@@ -501,82 +511,118 @@ class MusicService : MediaLibraryService() {
         }
     }
 
+    // Separate runnables so canceling hold does not cancel double-tap detection
+    private val nextHoldRunnable = object : Runnable {
+        override fun run() {
+            nextHolding = true
+            nextTapCount = 0
+            beepIfEnabled()
+            seekByMs(10_000)
+            holdJob?.postDelayed(this, 2000L) // keep seeking every 2s while held
+        }
+    }
+    private val prevHoldRunnable = object : Runnable {
+        override fun run() {
+            prevHolding = true
+            prevTapCount = 0
+            beepIfEnabled()
+            seekByMs(-10_000)
+            holdJob?.postDelayed(this, 2000L)
+        }
+    }
+    private var nextTapRunnable: Runnable? = null
+    private var prevTapRunnable: Runnable? = null
+
+    /**
+     * Steering / headset Next:
+     *  - short single tap → next track
+     *  - double tap → next folder
+     *  - hold (≥500ms) → +10s, then +10s every 2s while held
+     */
     private fun handleNextMediaButton(event: KeyEvent) {
-        val now = SystemClock.elapsedRealtime()
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-            lastNextDown = now
-            nextHolding = false
-            holdJob?.postDelayed({
-                nextHolding = true
-                beepIfEnabled()
-                seekByMs(10_000)
-                val r = object : Runnable {
-                    override fun run() {
-                        if (nextHolding) {
-                            seekByMs(10_000)
-                            holdJob?.postDelayed(this, 2000L)
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> {
+                if (event.repeatCount == 0) {
+                    lastNextDown = SystemClock.elapsedRealtime()
+                    nextHolding = false
+                    holdJob?.removeCallbacks(nextHoldRunnable)
+                    // Start hold timer after 500ms (not 2s) so short taps never seek
+                    holdJob?.postDelayed(nextHoldRunnable, 500L)
+                }
+            }
+            KeyEvent.ACTION_UP -> {
+                holdJob?.removeCallbacks(nextHoldRunnable)
+                if (nextHolding) {
+                    // Was a long-press seek session
+                    nextHolding = false
+                    nextTapCount = 0
+                    nextTapRunnable?.let { holdJob?.removeCallbacks(it) }
+                    return
+                }
+                val heldMs = SystemClock.elapsedRealtime() - lastNextDown
+                if (heldMs >= 500L) return // treated as hold, already canceled
+
+                nextTapCount++
+                nextTapRunnable?.let { holdJob?.removeCallbacks(it) }
+                val taps = nextTapCount
+                val r = Runnable {
+                    when {
+                        taps >= 2 -> {
+                            beepIfEnabled()
+                            nextFolderInQueue()
+                        }
+                        else -> {
+                            beepIfEnabled()
+                            playNextInQueue()
                         }
                     }
-                }
-                holdJob?.postDelayed(r, 2000L)
-            }, 2000L)
-        } else if (event.action == KeyEvent.ACTION_UP) {
-            holdJob?.removeCallbacksAndMessages(null)
-            if (nextHolding) {
-                nextHolding = false
-                nextTapCount = 0
-                return
-            }
-            if (now - lastNextDown < 2000L) {
-                nextTapCount++
-                holdJob?.postDelayed({
-                    if (nextTapCount >= 2) {
-                        beepIfEnabled(); nextFolderInQueue()
-                    } else if (nextTapCount == 1) {
-                        beepIfEnabled(); playNextInQueue()
-                    }
                     nextTapCount = 0
-                }, 350L)
+                }
+                nextTapRunnable = r
+                holdJob?.postDelayed(r, 320L)
             }
         }
     }
 
     private fun handlePrevMediaButton(event: KeyEvent) {
-        val now = SystemClock.elapsedRealtime()
-        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-            lastPrevDown = now
-            prevHolding = false
-            holdJob?.postDelayed({
-                prevHolding = true
-                beepIfEnabled()
-                seekByMs(-10_000)
-                val r = object : Runnable {
-                    override fun run() {
-                        if (prevHolding) {
-                            seekByMs(-10_000)
-                            holdJob?.postDelayed(this, 2000L)
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> {
+                if (event.repeatCount == 0) {
+                    lastPrevDown = SystemClock.elapsedRealtime()
+                    prevHolding = false
+                    holdJob?.removeCallbacks(prevHoldRunnable)
+                    holdJob?.postDelayed(prevHoldRunnable, 500L)
+                }
+            }
+            KeyEvent.ACTION_UP -> {
+                holdJob?.removeCallbacks(prevHoldRunnable)
+                if (prevHolding) {
+                    prevHolding = false
+                    prevTapCount = 0
+                    prevTapRunnable?.let { holdJob?.removeCallbacks(it) }
+                    return
+                }
+                val heldMs = SystemClock.elapsedRealtime() - lastPrevDown
+                if (heldMs >= 500L) return
+
+                prevTapCount++
+                prevTapRunnable?.let { holdJob?.removeCallbacks(it) }
+                val taps = prevTapCount
+                val r = Runnable {
+                    when {
+                        taps >= 2 -> {
+                            beepIfEnabled()
+                            prevFolderInQueue()
+                        }
+                        else -> {
+                            beepIfEnabled()
+                            playPrevInQueue()
                         }
                     }
-                }
-                holdJob?.postDelayed(r, 2000L)
-            }, 2000L)
-        } else if (event.action == KeyEvent.ACTION_UP) {
-            holdJob?.removeCallbacksAndMessages(null)
-            if (prevHolding) {
-                prevHolding = false
-                prevTapCount = 0
-                return
-            }
-            if (now - lastPrevDown < 2000L) {
-                prevTapCount++
-                holdJob?.postDelayed({
-                    if (prevTapCount >= 2) {
-                        beepIfEnabled(); prevFolderInQueue()
-                    } else if (prevTapCount == 1) {
-                        beepIfEnabled(); playPrevInQueue()
-                    }
                     prevTapCount = 0
-                }, 350L)
+                }
+                prevTapRunnable = r
+                holdJob?.postDelayed(r, 320L)
             }
         }
     }

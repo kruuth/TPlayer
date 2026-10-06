@@ -2,7 +2,9 @@ package com.grok.tplayer;
 
 import com.grok.tplayer.di.AppModule;
 import com.grok.tplayer.player.MusicService_GeneratedInjector;
+import com.grok.tplayer.ui.navigation.StartDestinationViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.browse.BrowseViewModel_HiltModules;
+import com.grok.tplayer.ui.screens.browse.SearchViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.browse.TrackListViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.settings.SettingsViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.source.SourceViewModel_HiltModules;
@@ -161,8 +163,10 @@ public final class TPlayerApp_HiltComponents {
           BrowseViewModel_HiltModules.KeyModule.class,
           HiltWrapper_ActivityRetainedComponentManager_LifecycleModule.class,
           HiltWrapper_SavedStateHandleModule.class,
+          SearchViewModel_HiltModules.KeyModule.class,
           SettingsViewModel_HiltModules.KeyModule.class,
           SourceViewModel_HiltModules.KeyModule.class,
+          StartDestinationViewModel_HiltModules.KeyModule.class,
           ActivityCBuilderModule.class,
           ViewModelCBuilderModule.class,
           TrackListViewModel_HiltModules.KeyModule.class
@@ -203,8 +207,10 @@ public final class TPlayerApp_HiltComponents {
       modules = {
           BrowseViewModel_HiltModules.BindsModule.class,
           HiltWrapper_HiltViewModelFactory_ViewModelModule.class,
+          SearchViewModel_HiltModules.BindsModule.class,
           SettingsViewModel_HiltModules.BindsModule.class,
           SourceViewModel_HiltModules.BindsModule.class,
+          StartDestinationViewModel_HiltModules.BindsModule.class,
           TrackListViewModel_HiltModules.BindsModule.class
       }
   )

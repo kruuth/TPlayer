@@ -11,7 +11,10 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.grok.tplayer.data.model.Track
+import com.grok.tplayer.data.preferences.UserPreferences
+import com.grok.tplayer.data.repository.MusicRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,7 +29,9 @@ import javax.inject.Singleton
 
 @Singleton
 class PlayerController @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val userPreferences: UserPreferences,
+    private val musicRepository: MusicRepository
 ) {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -89,6 +94,14 @@ class PlayerController @Inject constructor(
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             updatePosition()
+            // Sync current track from queue index
+            val idx = controller?.currentMediaItemIndex ?: currentIndex
+            if (idx in currentQueue.indices) {
+                currentIndex = idx
+                _currentTrack.value = currentQueue[idx]
+                _duration.value = currentQueue[idx].durationMs
+                persistLastTrack()
+            }
         }
     }
 
@@ -101,7 +114,51 @@ class PlayerController @Inject constructor(
         if (tracks.isNotEmpty()) {
             _currentTrack.value = tracks[currentIndex]
             _duration.value = tracks[currentIndex].durationMs
+            persistLastTrack()
         }
+    }
+
+    /** Load last played track (or first in library) without auto-playing. */
+    fun restoreLastPlayback() {
+        scope.launch {
+            try {
+                val settings = userPreferences.settings.first()
+                val all = musicRepository.getAllTracksList()
+                if (all.isEmpty()) return@launch
+                val idx = all.indexOfFirst { it.id == settings.lastTrackId }.let {
+                    if (it >= 0) it else 0
+                }
+                // Wait briefly for MediaController
+                var tries = 0
+                while (controller == null && tries < 20) {
+                    delay(100)
+                    tries++
+                }
+                setQueue(all, idx)
+                val pos = settings.lastPositionMs.coerceAtLeast(0L)
+                if (pos > 0) {
+                    controller?.seekTo(pos)
+                    _position.value = pos
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun persistLastTrack() {
+        val track = _currentTrack.value ?: return
+        val pos = _position.value
+        scope.launch {
+            try {
+                userPreferences.setLastPlayback(track.id, pos)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun savePositionNow() {
+        persistLastTrack()
     }
 
     fun play() {
@@ -115,6 +172,7 @@ class PlayerController @Inject constructor(
 
     fun pause() {
         controller?.pause()
+        savePositionNow()
     }
 
     fun togglePlayPause() {

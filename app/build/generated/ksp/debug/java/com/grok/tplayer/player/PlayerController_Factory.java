@@ -1,6 +1,8 @@
 package com.grok.tplayer.player;
 
 import android.content.Context;
+import com.grok.tplayer.data.preferences.UserPreferences;
+import com.grok.tplayer.data.repository.MusicRepository;
 import dagger.internal.DaggerGenerated;
 import dagger.internal.Factory;
 import dagger.internal.QualifierMetadata;
@@ -26,20 +28,31 @@ import javax.inject.Provider;
 public final class PlayerController_Factory implements Factory<PlayerController> {
   private final Provider<Context> contextProvider;
 
-  public PlayerController_Factory(Provider<Context> contextProvider) {
+  private final Provider<UserPreferences> userPreferencesProvider;
+
+  private final Provider<MusicRepository> musicRepositoryProvider;
+
+  public PlayerController_Factory(Provider<Context> contextProvider,
+      Provider<UserPreferences> userPreferencesProvider,
+      Provider<MusicRepository> musicRepositoryProvider) {
     this.contextProvider = contextProvider;
+    this.userPreferencesProvider = userPreferencesProvider;
+    this.musicRepositoryProvider = musicRepositoryProvider;
   }
 
   @Override
   public PlayerController get() {
-    return newInstance(contextProvider.get());
+    return newInstance(contextProvider.get(), userPreferencesProvider.get(), musicRepositoryProvider.get());
   }
 
-  public static PlayerController_Factory create(Provider<Context> contextProvider) {
-    return new PlayerController_Factory(contextProvider);
+  public static PlayerController_Factory create(Provider<Context> contextProvider,
+      Provider<UserPreferences> userPreferencesProvider,
+      Provider<MusicRepository> musicRepositoryProvider) {
+    return new PlayerController_Factory(contextProvider, userPreferencesProvider, musicRepositoryProvider);
   }
 
-  public static PlayerController newInstance(Context context) {
-    return new PlayerController(context);
+  public static PlayerController newInstance(Context context, UserPreferences userPreferences,
+      MusicRepository musicRepository) {
+    return new PlayerController(context, userPreferences, musicRepository);
   }
 }

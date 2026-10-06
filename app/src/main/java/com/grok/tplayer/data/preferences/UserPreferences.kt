@@ -27,7 +27,9 @@ data class AppSettings(
     val backgroundColor: Long? = null,       // null = use theme default
     val fontColor: Long? = null,
     val excludedFolders: Set<String> = emptySet(),
-    val steeringBeepEnabled: Boolean = true
+    val steeringBeepEnabled: Boolean = true,
+    val lastTrackId: Long = -1L,
+    val lastPositionMs: Long = 0L
 )
 
 @Singleton
@@ -43,6 +45,8 @@ class UserPreferences @Inject constructor(
         val HAS_BG = intPreferencesKey("has_bg")
         val HAS_FONT = intPreferencesKey("has_font")
         val STEERING_BEEP = booleanPreferencesKey("steering_beep")
+        val LAST_TRACK_ID = longPreferencesKey("last_track_id")
+        val LAST_POSITION = longPreferencesKey("last_position_ms")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -56,8 +60,17 @@ class UserPreferences @Inject constructor(
             backgroundColor = if (prefs[Keys.HAS_BG] == 1) prefs[Keys.BACKGROUND] else null,
             fontColor = if (prefs[Keys.HAS_FONT] == 1) prefs[Keys.FONT] else null,
             excludedFolders = prefs[Keys.EXCLUDED] ?: emptySet(),
-            steeringBeepEnabled = prefs[Keys.STEERING_BEEP] ?: true
+            steeringBeepEnabled = prefs[Keys.STEERING_BEEP] ?: true,
+            lastTrackId = prefs[Keys.LAST_TRACK_ID] ?: -1L,
+            lastPositionMs = prefs[Keys.LAST_POSITION] ?: 0L
         )
+    }
+
+    suspend fun setLastPlayback(trackId: Long, positionMs: Long) {
+        context.dataStore.edit {
+            it[Keys.LAST_TRACK_ID] = trackId
+            it[Keys.LAST_POSITION] = positionMs
+        }
     }
 
     suspend fun setSteeringBeepEnabled(enabled: Boolean) {

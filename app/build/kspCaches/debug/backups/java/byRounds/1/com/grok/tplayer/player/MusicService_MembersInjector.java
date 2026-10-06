@@ -28,28 +28,22 @@ public final class MusicService_MembersInjector implements MembersInjector<Music
 
   private final Provider<UserPreferences> userPreferencesProvider;
 
-  private final Provider<PlayerController> playerControllerProvider;
-
   public MusicService_MembersInjector(Provider<MusicRepository> musicRepositoryProvider,
-      Provider<UserPreferences> userPreferencesProvider,
-      Provider<PlayerController> playerControllerProvider) {
+      Provider<UserPreferences> userPreferencesProvider) {
     this.musicRepositoryProvider = musicRepositoryProvider;
     this.userPreferencesProvider = userPreferencesProvider;
-    this.playerControllerProvider = playerControllerProvider;
   }
 
   public static MembersInjector<MusicService> create(
       Provider<MusicRepository> musicRepositoryProvider,
-      Provider<UserPreferences> userPreferencesProvider,
-      Provider<PlayerController> playerControllerProvider) {
-    return new MusicService_MembersInjector(musicRepositoryProvider, userPreferencesProvider, playerControllerProvider);
+      Provider<UserPreferences> userPreferencesProvider) {
+    return new MusicService_MembersInjector(musicRepositoryProvider, userPreferencesProvider);
   }
 
   @Override
   public void injectMembers(MusicService instance) {
     injectMusicRepository(instance, musicRepositoryProvider.get());
     injectUserPreferences(instance, userPreferencesProvider.get());
-    injectPlayerController(instance, playerControllerProvider.get());
   }
 
   @InjectedFieldSignature("com.grok.tplayer.player.MusicService.musicRepository")
@@ -60,11 +54,5 @@ public final class MusicService_MembersInjector implements MembersInjector<Music
   @InjectedFieldSignature("com.grok.tplayer.player.MusicService.userPreferences")
   public static void injectUserPreferences(MusicService instance, UserPreferences userPreferences) {
     instance.userPreferences = userPreferences;
-  }
-
-  @InjectedFieldSignature("com.grok.tplayer.player.MusicService.playerController")
-  public static void injectPlayerController(MusicService instance,
-      PlayerController playerController) {
-    instance.playerController = playerController;
   }
 }
