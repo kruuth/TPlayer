@@ -127,11 +127,78 @@ class LibraryScanner @Inject constructor(
             // Refresh paths under this root label so removed files disappear
             trackDao.deleteTracksUnderFolder(rootLabel)
             trackDao.insertTracks(tracks)
+            val fp = fingerprintFromDocs(mp3Files.map { it.first })
+            userPreferences.setLibraryFingerprint(fp)
             _scanProgress.value = ScanState.Finished(trackDao.getTrackCount())
         } catch (e: Exception) {
             e.printStackTrace()
             _scanProgress.value = ScanState.Error(e.message ?: "Scan failed")
         }
+    }
+
+    /**
+     * Quick check: list MP3s under [treeUri] and compare fingerprint to last scan.
+     * Returns true if a full rescan was started (or needed).
+     */
+    suspend fun scanTreeIfChanged(
+        treeUri: Uri,
+        displayName: String,
+        isDefault: Boolean = false
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val excluded = userPreferences.settings.first().excludedFolders
+                .map { normalizePath(it) }.filter { it.isNotBlank() }.toSet()
+            val root = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext false
+            val rootLabel = root.name?.takeIf { it.isNotBlank() } ?: "Root"
+            val mp3Files = mutableListOf<Pair<DocumentFile, String>>()
+            collectMp3sViaContract(treeUri, rootLabel, mp3Files, excluded)
+            if (mp3Files.isEmpty()) {
+                collectMp3sDocumentFile(root, rootLabel, mp3Files, excluded)
+            }
+            val fp = fingerprintFromDocs(mp3Files.map { it.first })
+            val last = userPreferences.settings.first().libraryFingerprint
+            if (fp == last && trackDao.getTrackCount() > 0) {
+                return@withContext false // no change
+            }
+            // Changed — full scan
+            scanTree(treeUri, displayName, isDefault, emptySet())
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /** Force-rescan every saved source folder (Settings). */
+    suspend fun rescanAllSources() = withContext(Dispatchers.IO) {
+        val sources = trackDao.getSourcesList()
+        if (sources.isEmpty()) {
+            scanDefaultMusicFolder()
+            return@withContext
+        }
+        for (src in sources) {
+            if (src.uri.startsWith("mediastore:")) {
+                scanDefaultMusicFolder()
+            } else {
+                try {
+                    val uri = Uri.parse(src.uri)
+                    scanTree(uri, src.displayName, src.isDefault, emptySet())
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    private fun fingerprintFromDocs(docs: List<DocumentFile>): String {
+        // Stable signature of library contents without reading tags
+        val parts = docs.mapNotNull { d ->
+            val name = d.name ?: return@mapNotNull null
+            val len = try { d.length() } catch (_: Exception) { 0L }
+            val mod = try { d.lastModified() } catch (_: Exception) { 0L }
+            "$name|$len|$mod"
+        }.sorted()
+        return parts.size.toString() + ":" + parts.joinToString(";").hashCode().toString()
     }
 
     suspend fun scanDefaultMusicFolder(skipFolders: Set<String> = emptySet()) =
@@ -219,6 +286,8 @@ class LibraryScanner @Inject constructor(
                         lastScanned = System.currentTimeMillis()
                     )
                 )
+                val fp = "mediastore:" + tracks.size + ":" + tracks.map { it.uri }.sorted().hashCode()
+                userPreferences.setLibraryFingerprint(fp)
                 _scanProgress.value = ScanState.Finished(trackDao.getTrackCount())
             } catch (e: Exception) {
                 e.printStackTrace()

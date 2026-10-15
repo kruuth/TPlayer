@@ -86,8 +86,9 @@ fun BrowseScreen(
                     IconButton(onClick = onOpenSearch) {
                         Icon(Icons.Default.Search, contentDescription = "Search")
                     }
+                    // Jump back to last track / last folder or artist context on the player
                     IconButton(onClick = onOpenPlayer) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "Now Playing")
+                        Icon(Icons.Default.History, contentDescription = "Last played")
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.MoreVert, contentDescription = "Settings")

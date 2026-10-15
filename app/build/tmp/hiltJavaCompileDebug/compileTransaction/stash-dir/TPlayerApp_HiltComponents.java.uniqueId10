@@ -6,6 +6,7 @@ import com.grok.tplayer.ui.navigation.StartDestinationViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.browse.BrowseViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.browse.SearchViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.browse.TrackListViewModel_HiltModules;
+import com.grok.tplayer.ui.screens.player.NowPlayingViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.settings.SettingsViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.source.SourceViewModel_HiltModules;
 import dagger.Binds;
@@ -163,6 +164,7 @@ public final class TPlayerApp_HiltComponents {
           BrowseViewModel_HiltModules.KeyModule.class,
           HiltWrapper_ActivityRetainedComponentManager_LifecycleModule.class,
           HiltWrapper_SavedStateHandleModule.class,
+          NowPlayingViewModel_HiltModules.KeyModule.class,
           SearchViewModel_HiltModules.KeyModule.class,
           SettingsViewModel_HiltModules.KeyModule.class,
           SourceViewModel_HiltModules.KeyModule.class,
@@ -207,6 +209,7 @@ public final class TPlayerApp_HiltComponents {
       modules = {
           BrowseViewModel_HiltModules.BindsModule.class,
           HiltWrapper_HiltViewModelFactory_ViewModelModule.class,
+          NowPlayingViewModel_HiltModules.BindsModule.class,
           SearchViewModel_HiltModules.BindsModule.class,
           SettingsViewModel_HiltModules.BindsModule.class,
           SourceViewModel_HiltModules.BindsModule.class,

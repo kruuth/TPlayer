@@ -87,7 +87,12 @@ class PlayerController @Inject constructor(
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_ENDED) {
-                playNext()
+                scope.launch {
+                    val advance = try {
+                        userPreferences.settings.first().autoAdvanceTracks
+                    } catch (_: Exception) { true }
+                    if (advance) playNext()
+                }
             }
             updatePosition()
         }
@@ -140,6 +145,9 @@ class PlayerController @Inject constructor(
                     controller?.seekTo(pos)
                     _position.value = pos
                 }
+                // Never auto-play on restore — just cue the last track
+                controller?.pause()
+                _isPlaying.value = false
             } catch (e: Exception) {
                 e.printStackTrace()
             }

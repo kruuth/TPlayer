@@ -31,11 +31,11 @@ data class Track(
     val hasMultipleArts: Boolean = false // flag if extra images exist
 ) {
     val displayTitle: String
-        get() = title?.takeIf { it.isNotBlank() } ?: fileName.substringBeforeLast(".")
+        get() = (title?.takeIf { it.isNotBlank() } ?: fileName.substringBeforeLast(".")).trim()
 
     val displayArtist: String
-        get() = artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist"
+        get() = (artist?.takeIf { it.isNotBlank() } ?: "Unknown Artist").trim()
 
     val displayAlbum: String
-        get() = album?.takeIf { it.isNotBlank() } ?: "Unknown Album"
+        get() = (album?.takeIf { it.isNotBlank() } ?: "Unknown Album").trim()
 }

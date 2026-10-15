@@ -7,7 +7,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
@@ -79,7 +79,7 @@ fun TrackListScreen(
                         Icon(Icons.Default.Search, "Search")
                     }
                     IconButton(onClick = onOpenPlayer) {
-                        Icon(Icons.Default.PlayArrow, "Now Playing")
+                        Icon(Icons.Default.History, "Last played")
                     }
                     IconButton(onClick = { showSortMenu = true }) {
                         Icon(Icons.Default.Sort, "Sort")

@@ -67,6 +67,18 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { preferences.setSteeringBeepEnabled(enabled) }
     }
 
+    fun setShowSteeringFeedback(enabled: Boolean) {
+        viewModelScope.launch { preferences.setShowSteeringFeedback(enabled) }
+    }
+
+    fun setVuMeterOnTap(enabled: Boolean) {
+        viewModelScope.launch { preferences.setVuMeterOnTapEnabled(enabled) }
+    }
+
+    fun setAutoAdvance(enabled: Boolean) {
+        viewModelScope.launch { preferences.setAutoAdvanceTracks(enabled) }
+    }
+
     fun includeFolder(path: String) {
         viewModelScope.launch { preferences.removeExcludedFolder(path) }
     }
@@ -147,5 +159,27 @@ class SettingsViewModel @Inject constructor(
 
     fun clearStatus() {
         _statusMessage.value = null
+    }
+
+    fun setDefaultArt(uri: Uri?) {
+        viewModelScope.launch {
+            preferences.setDefaultArtUri(uri?.toString())
+        }
+    }
+
+    fun clearDefaultArt() {
+        viewModelScope.launch { preferences.setDefaultArtUri(null) }
+    }
+
+    fun forceRescanAll() {
+        viewModelScope.launch {
+            try {
+                _statusMessage.value = "Rescanning library…"
+                repository.rescanAllSources()
+                _statusMessage.value = "Rescan finished"
+            } catch (e: Exception) {
+                _statusMessage.value = "Rescan failed: ${e.message}"
+            }
+        }
     }
 }

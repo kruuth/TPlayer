@@ -1,5 +1,10 @@
 package com.grok.tplayer.ui.navigation
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -21,6 +26,7 @@ import com.grok.tplayer.ui.screens.player.NowPlayingScreen
 import com.grok.tplayer.ui.screens.settings.SettingsScreen
 import com.grok.tplayer.ui.screens.source.SourceScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -45,6 +51,7 @@ class StartDestinationViewModel @Inject constructor(
         viewModelScope.launch {
             val count = repository.getTrackCount()
             if (count > 0) {
+                // No automatic rescan — user triggers rescan from Settings when needed
                 playerController.restoreLastPlayback()
                 startRoute = Routes.NOW_PLAYING
             } else {
@@ -60,7 +67,16 @@ fun AppNavGraph(
     playerController: PlayerController,
     startVm: StartDestinationViewModel = hiltViewModel()
 ) {
-    val start = startVm.startRoute ?: return
+    val start = startVm.startRoute
+    if (start == null) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator()
+        }
+        return
+    }
 
     NavHost(navController = navController, startDestination = start) {
         composable(Routes.SOURCE) {

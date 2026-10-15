@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#6200EE</color>
+    <color name="ic_launcher_background">#E7AF2B</color>
     <string name="albums">Albums</string>
     <string name="all_tracks">All Tracks</string>
     <string name="app_name">TPlayer</string>

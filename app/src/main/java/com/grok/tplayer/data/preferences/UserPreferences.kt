@@ -23,13 +23,23 @@ enum class ThemeMode { LIGHT, DARK, SYSTEM }
 
 data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val buttonColor: Long = 0xFF6200EE,      // ARGB
-    val backgroundColor: Long? = null,       // null = use theme default
+    val buttonColor: Long = 0xFF6200EE,
+    val backgroundColor: Long? = null,
     val fontColor: Long? = null,
     val excludedFolders: Set<String> = emptySet(),
     val steeringBeepEnabled: Boolean = true,
     val lastTrackId: Long = -1L,
-    val lastPositionMs: Long = 0L
+    val lastPositionMs: Long = 0L,
+    /** content:// or file:// URI for fallback artwork when a track has none */
+    val defaultArtUri: String? = null,
+    /** Fingerprint of last successful scan (file count + path hash) for change detection */
+    val libraryFingerprint: String = "",
+    /** When true, briefly overlay steering action text on AA album art */
+    val showSteeringFeedback: Boolean = false,
+    /** Tap album art on Now Playing to open full-screen VU meter */
+    val vuMeterOnTapEnabled: Boolean = true,
+    /** When true, play next track automatically when one ends */
+    val autoAdvanceTracks: Boolean = true
 )
 
 @Singleton
@@ -47,6 +57,11 @@ class UserPreferences @Inject constructor(
         val STEERING_BEEP = booleanPreferencesKey("steering_beep")
         val LAST_TRACK_ID = longPreferencesKey("last_track_id")
         val LAST_POSITION = longPreferencesKey("last_position_ms")
+        val DEFAULT_ART = stringPreferencesKey("default_art_uri")
+        val LIB_FINGERPRINT = stringPreferencesKey("library_fingerprint")
+        val STEERING_FEEDBACK = booleanPreferencesKey("steering_feedback")
+        val VU_METER_TAP = booleanPreferencesKey("vu_meter_on_tap")
+        val AUTO_ADVANCE = booleanPreferencesKey("auto_advance_tracks")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -62,7 +77,12 @@ class UserPreferences @Inject constructor(
             excludedFolders = prefs[Keys.EXCLUDED] ?: emptySet(),
             steeringBeepEnabled = prefs[Keys.STEERING_BEEP] ?: true,
             lastTrackId = prefs[Keys.LAST_TRACK_ID] ?: -1L,
-            lastPositionMs = prefs[Keys.LAST_POSITION] ?: 0L
+            lastPositionMs = prefs[Keys.LAST_POSITION] ?: 0L,
+            defaultArtUri = prefs[Keys.DEFAULT_ART],
+            libraryFingerprint = prefs[Keys.LIB_FINGERPRINT] ?: "",
+            showSteeringFeedback = prefs[Keys.STEERING_FEEDBACK] ?: false,
+            vuMeterOnTapEnabled = prefs[Keys.VU_METER_TAP] ?: true,
+            autoAdvanceTracks = prefs[Keys.AUTO_ADVANCE] ?: true
         )
     }
 
@@ -77,6 +97,28 @@ class UserPreferences @Inject constructor(
         context.dataStore.edit { it[Keys.STEERING_BEEP] = enabled }
     }
 
+    suspend fun setShowSteeringFeedback(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.STEERING_FEEDBACK] = enabled }
+    }
+
+    suspend fun setVuMeterOnTapEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.VU_METER_TAP] = enabled }
+    }
+
+    suspend fun setAutoAdvanceTracks(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.AUTO_ADVANCE] = enabled }
+    }
+
+    suspend fun setDefaultArtUri(uri: String?) {
+        context.dataStore.edit {
+            if (uri.isNullOrBlank()) it.remove(Keys.DEFAULT_ART)
+            else it[Keys.DEFAULT_ART] = uri
+        }
+    }
+
+    suspend fun setLibraryFingerprint(fp: String) {
+        context.dataStore.edit { it[Keys.LIB_FINGERPRINT] = fp }
+    }
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { it[Keys.THEME] = mode.name }

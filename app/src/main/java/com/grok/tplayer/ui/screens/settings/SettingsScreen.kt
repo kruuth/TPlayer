@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.grok.tplayer.data.preferences.ThemeMode
@@ -34,6 +35,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
+    val context = LocalContext.current
     val settings by viewModel.settings.collectAsState()
     val folders by viewModel.allFolders.collectAsState()
     val scanState by viewModel.scanProgress.collectAsState()
@@ -58,6 +60,21 @@ fun SettingsScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             viewModel.prepareCustomRoot(uri)
+        }
+    }
+
+    val defaultArtLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) {
+            }
+            viewModel.setDefaultArt(uri)
         }
     }
 
@@ -209,6 +226,53 @@ fun SettingsScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("Rescan default Music folder", maxLines = 1, softWrap = false)
                 }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { viewModel.forceRescanAll() },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !listing && scanState !is LibraryScanner.ScanState.Scanning
+                ) {
+                    Icon(Icons.Default.Refresh, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Rescan library now", maxLines = 1, softWrap = false)
+                }
+                Text(
+                    "Use this when you add or remove music files.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2
+                )
+
+                Spacer(Modifier.height(12.dp))
+                Text("Default album art", style = MaterialTheme.typography.titleSmall, maxLines = 1, softWrap = false)
+                Text(
+                    "Shown when a track has no embedded cover.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        defaultArtLauncher.launch(arrayOf("image/*"))
+                    }) {
+                        Text("Choose image", maxLines = 1, softWrap = false)
+                    }
+                    if (settings.defaultArtUri != null) {
+                        TextButton(onClick = { viewModel.clearDefaultArt() }) {
+                            Text("Clear", maxLines = 1, softWrap = false)
+                        }
+                    }
+                }
+                if (settings.defaultArtUri != null) {
+                    Text(
+                        "Custom default art set",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
 
                 if (listing) {
                     Spacer(Modifier.height(8.dp))
@@ -273,6 +337,82 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Show steering action on album art",
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(0.75f)
+                    )
+                    Switch(
+                        checked = settings.showSteeringFeedback,
+                        onCheckedChange = { viewModel.setShowSteeringFeedback(it) }
+                    )
+                }
+                Text(
+                    "In Android Auto, briefly shows Next / Previous / Folder over the artwork when a steering button is used.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("Now Playing", style = MaterialTheme.typography.titleSmall, maxLines = 1, softWrap = false)
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Tap album art for VU meter",
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(0.75f)
+                    )
+                    Switch(
+                        checked = settings.vuMeterOnTapEnabled,
+                        onCheckedChange = { viewModel.setVuMeterOnTap(it) }
+                    )
+                }
+                Text(
+                    "On the phone player, tap the disc to open a full-screen VU meter (tap again to return). Android Auto cannot host a custom VU screen — the car draws a fixed media template.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("Playback", style = MaterialTheme.typography.titleSmall, maxLines = 1, softWrap = false)
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Auto-advance to next track",
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(0.75f)
+                    )
+                    Switch(
+                        checked = settings.autoAdvanceTracks,
+                        onCheckedChange = { viewModel.setAutoAdvance(it) }
+                    )
+                }
+                Text(
+                    "When on, the next song in the folder/artist/queue plays automatically when one ends. When off, playback stops at the end of each track.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
             }

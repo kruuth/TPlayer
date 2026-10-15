@@ -165,7 +165,7 @@ MERGED from [androidx.versionedparcelable:versionedparcelable:1.1.1] C:\Users\Xi
 	android:fullBackupContent
 		ADDED from C:\Users\Xi\AndroidStudioProjects\Mp3Player\app\src\main\AndroidManifest.xml:19:9-54
 	android:roundIcon
-		ADDED from C:\Users\Xi\AndroidStudioProjects\Mp3Player\app\src\main\AndroidManifest.xml:22:9-48
+		ADDED from C:\Users\Xi\AndroidStudioProjects\Mp3Player\app\src\main\AndroidManifest.xml:22:9-54
 	tools:targetApi
 		ADDED from C:\Users\Xi\AndroidStudioProjects\Mp3Player\app\src\main\AndroidManifest.xml:25:9-29
 	android:icon

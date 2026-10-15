@@ -47,4 +47,9 @@ class MusicRepository @Inject constructor(
         isDefault: Boolean = false,
         skipFolders: Set<String> = emptySet()
     ) = scanner.scanTree(uri, name, isDefault, skipFolders)
+
+    suspend fun scanTreeIfChanged(uri: Uri, name: String, isDefault: Boolean = false) =
+        scanner.scanTreeIfChanged(uri, name, isDefault)
+
+    suspend fun rescanAllSources() = scanner.rescanAllSources()
 }

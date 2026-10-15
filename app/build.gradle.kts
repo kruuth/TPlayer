@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.grok.tplayer"
+    namespace = "com.iks.tplayer"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.grok.tplayer"
+        applicationId = "com.iks.tplayer"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

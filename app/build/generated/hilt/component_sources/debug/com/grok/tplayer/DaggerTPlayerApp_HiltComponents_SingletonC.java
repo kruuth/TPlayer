@@ -29,6 +29,8 @@ import com.grok.tplayer.ui.screens.browse.SearchViewModel;
 import com.grok.tplayer.ui.screens.browse.SearchViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.browse.TrackListViewModel;
 import com.grok.tplayer.ui.screens.browse.TrackListViewModel_HiltModules;
+import com.grok.tplayer.ui.screens.player.NowPlayingViewModel;
+import com.grok.tplayer.ui.screens.player.NowPlayingViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.settings.SettingsViewModel;
 import com.grok.tplayer.ui.screens.settings.SettingsViewModel_HiltModules;
 import com.grok.tplayer.ui.screens.source.SourceViewModel;
@@ -393,7 +395,7 @@ public final class DaggerTPlayerApp_HiltComponents_SingletonC {
 
     @Override
     public Map<Class<?>, Boolean> getViewModelKeys() {
-      return LazyClassKeyMap.<Boolean>of(ImmutableMap.<String, Boolean>builderWithExpectedSize(6).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_BrowseViewModel, BrowseViewModel_HiltModules.KeyModule.provide()).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_SearchViewModel, SearchViewModel_HiltModules.KeyModule.provide()).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_settings_SettingsViewModel, SettingsViewModel_HiltModules.KeyModule.provide()).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_source_SourceViewModel, SourceViewModel_HiltModules.KeyModule.provide()).put(LazyClassKeyProvider.com_grok_tplayer_ui_navigation_StartDestinationViewModel, StartDestinationViewModel_HiltModules.KeyModule.provide()).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_TrackListViewModel, TrackListViewModel_HiltModules.KeyModule.provide()).build());
+      return LazyClassKeyMap.<Boolean>of(ImmutableMap.<String, Boolean>builderWithExpectedSize(7).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_BrowseViewModel, BrowseViewModel_HiltModules.KeyModule.provide()).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_player_NowPlayingViewModel, NowPlayingViewModel_HiltModules.KeyModule.provide()).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_SearchViewModel, SearchViewModel_HiltModules.KeyModule.provide()).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_settings_SettingsViewModel, SettingsViewModel_HiltModules.KeyModule.provide()).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_source_SourceViewModel, SourceViewModel_HiltModules.KeyModule.provide()).put(LazyClassKeyProvider.com_grok_tplayer_ui_navigation_StartDestinationViewModel, StartDestinationViewModel_HiltModules.KeyModule.provide()).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_TrackListViewModel, TrackListViewModel_HiltModules.KeyModule.provide()).build());
     }
 
     @Override
@@ -423,13 +425,15 @@ public final class DaggerTPlayerApp_HiltComponents_SingletonC {
     private static final class LazyClassKeyProvider {
       static String com_grok_tplayer_ui_screens_browse_BrowseViewModel = "com.grok.tplayer.ui.screens.browse.BrowseViewModel";
 
-      static String com_grok_tplayer_ui_navigation_StartDestinationViewModel = "com.grok.tplayer.ui.navigation.StartDestinationViewModel";
+      static String com_grok_tplayer_ui_screens_player_NowPlayingViewModel = "com.grok.tplayer.ui.screens.player.NowPlayingViewModel";
 
       static String com_grok_tplayer_ui_screens_browse_TrackListViewModel = "com.grok.tplayer.ui.screens.browse.TrackListViewModel";
 
-      static String com_grok_tplayer_ui_screens_settings_SettingsViewModel = "com.grok.tplayer.ui.screens.settings.SettingsViewModel";
-
       static String com_grok_tplayer_ui_screens_browse_SearchViewModel = "com.grok.tplayer.ui.screens.browse.SearchViewModel";
+
+      static String com_grok_tplayer_ui_navigation_StartDestinationViewModel = "com.grok.tplayer.ui.navigation.StartDestinationViewModel";
+
+      static String com_grok_tplayer_ui_screens_settings_SettingsViewModel = "com.grok.tplayer.ui.screens.settings.SettingsViewModel";
 
       static String com_grok_tplayer_ui_screens_source_SourceViewModel = "com.grok.tplayer.ui.screens.source.SourceViewModel";
 
@@ -437,16 +441,19 @@ public final class DaggerTPlayerApp_HiltComponents_SingletonC {
       BrowseViewModel com_grok_tplayer_ui_screens_browse_BrowseViewModel2;
 
       @KeepFieldType
-      StartDestinationViewModel com_grok_tplayer_ui_navigation_StartDestinationViewModel2;
+      NowPlayingViewModel com_grok_tplayer_ui_screens_player_NowPlayingViewModel2;
 
       @KeepFieldType
       TrackListViewModel com_grok_tplayer_ui_screens_browse_TrackListViewModel2;
 
       @KeepFieldType
-      SettingsViewModel com_grok_tplayer_ui_screens_settings_SettingsViewModel2;
+      SearchViewModel com_grok_tplayer_ui_screens_browse_SearchViewModel2;
 
       @KeepFieldType
-      SearchViewModel com_grok_tplayer_ui_screens_browse_SearchViewModel2;
+      StartDestinationViewModel com_grok_tplayer_ui_navigation_StartDestinationViewModel2;
+
+      @KeepFieldType
+      SettingsViewModel com_grok_tplayer_ui_screens_settings_SettingsViewModel2;
 
       @KeepFieldType
       SourceViewModel com_grok_tplayer_ui_screens_source_SourceViewModel2;
@@ -461,6 +468,8 @@ public final class DaggerTPlayerApp_HiltComponents_SingletonC {
     private final ViewModelCImpl viewModelCImpl = this;
 
     private Provider<BrowseViewModel> browseViewModelProvider;
+
+    private Provider<NowPlayingViewModel> nowPlayingViewModelProvider;
 
     private Provider<SearchViewModel> searchViewModelProvider;
 
@@ -486,16 +495,17 @@ public final class DaggerTPlayerApp_HiltComponents_SingletonC {
     private void initialize(final SavedStateHandle savedStateHandleParam,
         final ViewModelLifecycle viewModelLifecycleParam) {
       this.browseViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 0);
-      this.searchViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 1);
-      this.settingsViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 2);
-      this.sourceViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 3);
-      this.startDestinationViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 4);
-      this.trackListViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 5);
+      this.nowPlayingViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 1);
+      this.searchViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 2);
+      this.settingsViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 3);
+      this.sourceViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 4);
+      this.startDestinationViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 5);
+      this.trackListViewModelProvider = new SwitchingProvider<>(singletonCImpl, activityRetainedCImpl, viewModelCImpl, 6);
     }
 
     @Override
     public Map<Class<?>, javax.inject.Provider<ViewModel>> getHiltViewModelMap() {
-      return LazyClassKeyMap.<javax.inject.Provider<ViewModel>>of(ImmutableMap.<String, javax.inject.Provider<ViewModel>>builderWithExpectedSize(6).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_BrowseViewModel, ((Provider) browseViewModelProvider)).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_SearchViewModel, ((Provider) searchViewModelProvider)).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_settings_SettingsViewModel, ((Provider) settingsViewModelProvider)).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_source_SourceViewModel, ((Provider) sourceViewModelProvider)).put(LazyClassKeyProvider.com_grok_tplayer_ui_navigation_StartDestinationViewModel, ((Provider) startDestinationViewModelProvider)).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_TrackListViewModel, ((Provider) trackListViewModelProvider)).build());
+      return LazyClassKeyMap.<javax.inject.Provider<ViewModel>>of(ImmutableMap.<String, javax.inject.Provider<ViewModel>>builderWithExpectedSize(7).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_BrowseViewModel, ((Provider) browseViewModelProvider)).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_player_NowPlayingViewModel, ((Provider) nowPlayingViewModelProvider)).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_SearchViewModel, ((Provider) searchViewModelProvider)).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_settings_SettingsViewModel, ((Provider) settingsViewModelProvider)).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_source_SourceViewModel, ((Provider) sourceViewModelProvider)).put(LazyClassKeyProvider.com_grok_tplayer_ui_navigation_StartDestinationViewModel, ((Provider) startDestinationViewModelProvider)).put(LazyClassKeyProvider.com_grok_tplayer_ui_screens_browse_TrackListViewModel, ((Provider) trackListViewModelProvider)).build());
     }
 
     @Override
@@ -507,33 +517,38 @@ public final class DaggerTPlayerApp_HiltComponents_SingletonC {
     private static final class LazyClassKeyProvider {
       static String com_grok_tplayer_ui_screens_source_SourceViewModel = "com.grok.tplayer.ui.screens.source.SourceViewModel";
 
-      static String com_grok_tplayer_ui_screens_browse_SearchViewModel = "com.grok.tplayer.ui.screens.browse.SearchViewModel";
-
-      static String com_grok_tplayer_ui_navigation_StartDestinationViewModel = "com.grok.tplayer.ui.navigation.StartDestinationViewModel";
-
-      static String com_grok_tplayer_ui_screens_browse_BrowseViewModel = "com.grok.tplayer.ui.screens.browse.BrowseViewModel";
+      static String com_grok_tplayer_ui_screens_settings_SettingsViewModel = "com.grok.tplayer.ui.screens.settings.SettingsViewModel";
 
       static String com_grok_tplayer_ui_screens_browse_TrackListViewModel = "com.grok.tplayer.ui.screens.browse.TrackListViewModel";
 
-      static String com_grok_tplayer_ui_screens_settings_SettingsViewModel = "com.grok.tplayer.ui.screens.settings.SettingsViewModel";
+      static String com_grok_tplayer_ui_screens_browse_BrowseViewModel = "com.grok.tplayer.ui.screens.browse.BrowseViewModel";
+
+      static String com_grok_tplayer_ui_navigation_StartDestinationViewModel = "com.grok.tplayer.ui.navigation.StartDestinationViewModel";
+
+      static String com_grok_tplayer_ui_screens_player_NowPlayingViewModel = "com.grok.tplayer.ui.screens.player.NowPlayingViewModel";
+
+      static String com_grok_tplayer_ui_screens_browse_SearchViewModel = "com.grok.tplayer.ui.screens.browse.SearchViewModel";
 
       @KeepFieldType
       SourceViewModel com_grok_tplayer_ui_screens_source_SourceViewModel2;
 
       @KeepFieldType
-      SearchViewModel com_grok_tplayer_ui_screens_browse_SearchViewModel2;
-
-      @KeepFieldType
-      StartDestinationViewModel com_grok_tplayer_ui_navigation_StartDestinationViewModel2;
-
-      @KeepFieldType
-      BrowseViewModel com_grok_tplayer_ui_screens_browse_BrowseViewModel2;
+      SettingsViewModel com_grok_tplayer_ui_screens_settings_SettingsViewModel2;
 
       @KeepFieldType
       TrackListViewModel com_grok_tplayer_ui_screens_browse_TrackListViewModel2;
 
       @KeepFieldType
-      SettingsViewModel com_grok_tplayer_ui_screens_settings_SettingsViewModel2;
+      BrowseViewModel com_grok_tplayer_ui_screens_browse_BrowseViewModel2;
+
+      @KeepFieldType
+      StartDestinationViewModel com_grok_tplayer_ui_navigation_StartDestinationViewModel2;
+
+      @KeepFieldType
+      NowPlayingViewModel com_grok_tplayer_ui_screens_player_NowPlayingViewModel2;
+
+      @KeepFieldType
+      SearchViewModel com_grok_tplayer_ui_screens_browse_SearchViewModel2;
     }
 
     private static final class SwitchingProvider<T> implements Provider<T> {
@@ -560,19 +575,22 @@ public final class DaggerTPlayerApp_HiltComponents_SingletonC {
           case 0: // com.grok.tplayer.ui.screens.browse.BrowseViewModel 
           return (T) new BrowseViewModel(singletonCImpl.musicRepositoryProvider.get(), singletonCImpl.userPreferencesProvider.get());
 
-          case 1: // com.grok.tplayer.ui.screens.browse.SearchViewModel 
+          case 1: // com.grok.tplayer.ui.screens.player.NowPlayingViewModel 
+          return (T) new NowPlayingViewModel(singletonCImpl.userPreferencesProvider.get());
+
+          case 2: // com.grok.tplayer.ui.screens.browse.SearchViewModel 
           return (T) new SearchViewModel(singletonCImpl.musicRepositoryProvider.get());
 
-          case 2: // com.grok.tplayer.ui.screens.settings.SettingsViewModel 
+          case 3: // com.grok.tplayer.ui.screens.settings.SettingsViewModel 
           return (T) new SettingsViewModel(singletonCImpl.userPreferencesProvider.get(), singletonCImpl.musicRepositoryProvider.get());
 
-          case 3: // com.grok.tplayer.ui.screens.source.SourceViewModel 
+          case 4: // com.grok.tplayer.ui.screens.source.SourceViewModel 
           return (T) new SourceViewModel(singletonCImpl.musicRepositoryProvider.get());
 
-          case 4: // com.grok.tplayer.ui.navigation.StartDestinationViewModel 
+          case 5: // com.grok.tplayer.ui.navigation.StartDestinationViewModel 
           return (T) new StartDestinationViewModel(singletonCImpl.musicRepositoryProvider.get(), singletonCImpl.playerControllerProvider.get());
 
-          case 5: // com.grok.tplayer.ui.screens.browse.TrackListViewModel 
+          case 6: // com.grok.tplayer.ui.screens.browse.TrackListViewModel 
           return (T) new TrackListViewModel(singletonCImpl.musicRepositoryProvider.get());
 
           default: throw new AssertionError(id);
