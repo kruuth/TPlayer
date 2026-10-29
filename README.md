@@ -39,7 +39,7 @@ A fully offline Android music player built with **Kotlin**, **Jetpack Compose**,
 ## Project structure
 
 ```
-app/src/main/java/com/grok/tplayer/
+app/src/main/java/com/iks/tplayer/
 ├── data/
 │   ├── db/           Room database + DAO
 │   ├── model/        Track, AlbumArt, SourceFolder

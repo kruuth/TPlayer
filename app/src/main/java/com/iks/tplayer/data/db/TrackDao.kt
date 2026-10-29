@@ -72,6 +72,10 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE folderPath = :prefix OR folderPath LIKE :prefix || '/%'")
     suspend fun deleteTracksUnderFolder(prefix: String)
 
+    /** Remove tracks only in this exact folder (not subfolders) — incremental scan. */
+    @Query("DELETE FROM tracks WHERE folderPath = :folder")
+    suspend fun deleteTracksInFolderExact(folder: String)
+
     @Query("SELECT * FROM tracks WHERE uri = :uri LIMIT 1")
     suspend fun getTrackByUri(uri: String): Track?
 
@@ -100,6 +104,15 @@ interface TrackDao {
 
     @Query("SELECT * FROM source_folders")
     fun getSources(): Flow<List<SourceFolder>>
+
+    @Query("SELECT * FROM source_folders WHERE isCloud = 1")
+    fun getCloudSources(): Flow<List<SourceFolder>>
+
+    @Query("SELECT * FROM source_folders WHERE isCloud = 1")
+    suspend fun getCloudSourcesList(): List<SourceFolder>
+
+    @Query("DELETE FROM source_folders WHERE uri = :uri")
+    suspend fun deleteSource(uri: String)
 
     @Query("SELECT * FROM source_folders WHERE isDefault = 1 LIMIT 1")
     suspend fun getDefaultSource(): SourceFolder?

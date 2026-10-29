@@ -39,7 +39,16 @@ data class AppSettings(
     /** Tap album art on Now Playing to open full-screen VU meter */
     val vuMeterOnTapEnabled: Boolean = true,
     /** When true, play next track automatically when one ends */
-    val autoAdvanceTracks: Boolean = true
+    val autoAdvanceTracks: Boolean = true,
+    /** Last selected Library tab index (Artists=0 … All=6) */
+    val lastBrowseTab: Int = 0,
+    /**
+     * Per-folder content signatures for incremental scan.
+     * Encoded as lines: "folderPath\tsignature"
+     */
+    val folderSignatures: String = "",
+    /** Backup of source tree URIs so we can recover after rare DB issues */
+    val savedSourceUris: Set<String> = emptySet()
 )
 
 @Singleton
@@ -62,6 +71,9 @@ class UserPreferences @Inject constructor(
         val STEERING_FEEDBACK = booleanPreferencesKey("steering_feedback")
         val VU_METER_TAP = booleanPreferencesKey("vu_meter_on_tap")
         val AUTO_ADVANCE = booleanPreferencesKey("auto_advance_tracks")
+        val LAST_BROWSE_TAB = intPreferencesKey("last_browse_tab")
+        val FOLDER_SIGS = stringPreferencesKey("folder_signatures")
+        val SAVED_SOURCES = stringSetPreferencesKey("saved_source_uris")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -82,7 +94,10 @@ class UserPreferences @Inject constructor(
             libraryFingerprint = prefs[Keys.LIB_FINGERPRINT] ?: "",
             showSteeringFeedback = prefs[Keys.STEERING_FEEDBACK] ?: false,
             vuMeterOnTapEnabled = prefs[Keys.VU_METER_TAP] ?: true,
-            autoAdvanceTracks = prefs[Keys.AUTO_ADVANCE] ?: true
+            autoAdvanceTracks = prefs[Keys.AUTO_ADVANCE] ?: true,
+            lastBrowseTab = (prefs[Keys.LAST_BROWSE_TAB] ?: 0).coerceIn(0, 6),
+            folderSignatures = prefs[Keys.FOLDER_SIGS] ?: "",
+            savedSourceUris = prefs[Keys.SAVED_SOURCES] ?: emptySet()
         )
     }
 
@@ -109,6 +124,10 @@ class UserPreferences @Inject constructor(
         context.dataStore.edit { it[Keys.AUTO_ADVANCE] = enabled }
     }
 
+    suspend fun setLastBrowseTab(index: Int) {
+        context.dataStore.edit { it[Keys.LAST_BROWSE_TAB] = index.coerceIn(0, 6) }
+    }
+
     suspend fun setDefaultArtUri(uri: String?) {
         context.dataStore.edit {
             if (uri.isNullOrBlank()) it.remove(Keys.DEFAULT_ART)
@@ -119,6 +138,38 @@ class UserPreferences @Inject constructor(
     suspend fun setLibraryFingerprint(fp: String) {
         context.dataStore.edit { it[Keys.LIB_FINGERPRINT] = fp }
     }
+
+    suspend fun setFolderSignatures(encoded: String) {
+        context.dataStore.edit { it[Keys.FOLDER_SIGS] = encoded }
+    }
+
+    suspend fun addSavedSourceUri(uri: String) {
+        context.dataStore.edit {
+            val cur = it[Keys.SAVED_SOURCES] ?: emptySet()
+            it[Keys.SAVED_SOURCES] = cur + uri
+        }
+    }
+
+    suspend fun setSavedSourceUris(uris: Set<String>) {
+        context.dataStore.edit { it[Keys.SAVED_SOURCES] = uris }
+    }
+
+
+    fun parseFolderSignatures(encoded: String = ""): Map<String, String> {
+        if (encoded.isBlank()) return emptyMap()
+        return encoded.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && '	' in it }
+            .mapNotNull { line ->
+                val i = line.indexOf('	')
+                if (i <= 0) null else line.substring(0, i) to line.substring(i + 1)
+            }
+            .toMap()
+    }
+
+    fun encodeFolderSignatures(map: Map<String, String>): String =
+        map.entries.sortedBy { it.key }.joinToString("\n") { "${it.key}	${it.value}" }
+
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { it[Keys.THEME] = mode.name }

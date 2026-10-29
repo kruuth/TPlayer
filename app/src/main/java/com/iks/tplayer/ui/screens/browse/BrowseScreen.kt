@@ -1,6 +1,8 @@
 package com.iks.tplayer.ui.screens.browse
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,30 +16,46 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun BrowseScreen(
     onOpenList: (mode: String, key: String) -> Unit,
     onOpenPlayer: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSearch: () -> Unit = {},
+    onEditPlaylist: (Long) -> Unit = {},
     viewModel: BrowseViewModel = hiltViewModel()
 ) {
     val artists by viewModel.artists.collectAsState()
     val years by viewModel.years.collectAsState()
     val folders by viewModel.folders.collectAsState()
     val excluded by viewModel.excludedFolders.collectAsState()
+    val cloudSources by viewModel.cloudSources.collectAsState()
+    val playlists by viewModel.playlists.collectAsState()
 
+    val tabs = listOf("Artists", "Albums", "Years", "Folders", "Cloud", "Playlists", "All")
+    val savedTab by viewModel.lastBrowseTab.collectAsState()
+    // Restore last active tab (Folders if user was browsing folders, etc.)
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Artists", "Albums", "Years", "Folders", "All")
+    var tabInitialized by remember { mutableStateOf(false) }
+    LaunchedEffect(savedTab) {
+        if (!tabInitialized) {
+            selectedTab = savedTab.coerceIn(0, tabs.lastIndex)
+            tabInitialized = true
+        }
+    }
 
-    // Normalized folder list (exclude excluded paths)
+    // Normalized folder list (exclude excluded paths); local Folders tab hides Cloud/ paths
     val filteredFolders = remember(folders, excluded) {
         folders.filter { f ->
+            !f.startsWith("Cloud/") &&
             excluded.none { excl ->
                 f == excl || f.startsWith("$excl/") || f.startsWith("$excl\\")
             }
         }
+    }
+    val cloudFolderPaths = remember(folders) {
+        folders.filter { it.startsWith("Cloud/") }
     }
 
     // Common library root shared by all paths (e.g. "Music" or "storage/Music")
@@ -48,6 +66,7 @@ fun BrowseScreen(
 
     // Current location relative to library; empty string means at library root
     var relativePath by remember { mutableStateOf("") }
+    var cloudRelative by remember { mutableStateOf("") }
 
     // Absolute path for queries / display
     val currentPath = remember(libraryRoot, relativePath) {
@@ -104,7 +123,9 @@ fun BrowseScreen(
                         selected = selectedTab == index,
                         onClick = {
                             selectedTab = index
+                            viewModel.setLastBrowseTab(index)
                             if (index != 3) relativePath = ""
+                            if (index != 4) cloudRelative = ""
                         },
                         text = {
                             Text(
@@ -241,7 +262,124 @@ fun BrowseScreen(
                         }
                     }
                 }
-                4 -> ListItem(
+                4 -> {
+                    // Cloud connections + folder tree under Cloud/<name>/...
+                    val cloudRoot = "Cloud"
+                    val cloudCurrent = if (cloudRelative.isEmpty()) cloudRoot
+                    else "$cloudRoot/${cloudRelative.trim('/')}"
+                    val cloudChildren = childFolderNames(cloudFolderPaths, cloudCurrent)
+                    val cloudCanPlay = cloudRelative.isNotEmpty() && cloudFolderPaths.any {
+                        it == cloudCurrent || it.startsWith(cloudCurrent.trimEnd('/') + "/")
+                    }
+                    LazyColumn {
+                        if (cloudSources.isEmpty() && cloudFolderPaths.isEmpty()) {
+                            item {
+                                ListItem(
+                                    headlineContent = {
+                                        Text(
+                                            "No cloud drives connected",
+                                            maxLines = 2,
+                                            softWrap = true
+                                        )
+                                    },
+                                    supportingContent = {
+                                        Text(
+                                            "Settings → Cloud drives → Connect cloud folder (pick Google Drive or another provider).",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            maxLines = 3
+                                        )
+                                    },
+                                    leadingContent = {
+                                        Icon(Icons.Default.Cloud, contentDescription = null)
+                                    }
+                                )
+                            }
+                        }
+                        if (cloudRelative.isNotEmpty()) {
+                            item {
+                                ListItem(
+                                    headlineContent = {
+                                        Text("Up", maxLines = 1, softWrap = false)
+                                    },
+                                    leadingContent = {
+                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Up")
+                                    },
+                                    modifier = Modifier.clickable {
+                                        cloudRelative = cloudRelative
+                                            .trim('/')
+                                            .substringBeforeLast('/', missingDelimiterValue = "")
+                                    }
+                                )
+                            }
+                        }
+                        // Top level: show each connection name from sources if no relative path
+                        if (cloudRelative.isEmpty()) {
+                            items(cloudSources) { src ->
+                                val childName = src.displayName
+                                ListItem(
+                                    headlineContent = {
+                                        Text(childName, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
+                                    },
+                                    supportingContent = {
+                                        Text("Cloud connection", style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                    },
+                                    leadingContent = {
+                                        Icon(Icons.Default.Cloud, contentDescription = null)
+                                    },
+                                    trailingContent = {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowForward, null)
+                                    },
+                                    modifier = Modifier.clickable {
+                                        // Enter Cloud/<displayName>
+                                        cloudRelative = childName
+                                    }
+                                )
+                            }
+                        }
+                        items(cloudChildren) { name ->
+                            val nextRel = if (cloudRelative.isEmpty()) name
+                            else "${cloudRelative.trim('/')}/$name"
+                            ListItem(
+                                headlineContent = {
+                                    Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
+                                },
+                                leadingContent = {
+                                    Icon(Icons.Default.Folder, contentDescription = null)
+                                },
+                                trailingContent = {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, null)
+                                },
+                                modifier = Modifier.clickable {
+                                    cloudRelative = nextRel
+                                }
+                            )
+                        }
+                        if (cloudCanPlay) {
+                            item {
+                                ListItem(
+                                    headlineContent = {
+                                        Text("Play this folder", maxLines = 1, softWrap = false)
+                                    },
+                                    leadingContent = {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                    },
+                                    modifier = Modifier.clickable {
+                                        onOpenList("folder", cloudCurrent)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                5 -> PlaylistsTab(
+                    playlists = playlists,
+                    onOpenPlaylist = { id -> onOpenList("playlist", id.toString()) },
+                    onEditPlaylist = { id -> onEditPlaylist(id) },
+                    onCreate = { name -> viewModel.createPlaylist(name) },
+                    onRename = { id, name -> viewModel.renamePlaylist(id, name) },
+                    onDelete = { id -> viewModel.deletePlaylist(id) }
+                )
+                6 -> ListItem(
                     headlineContent = {
                         Text("Play all tracks (A–Z)", maxLines = 1, softWrap = false)
                     },
@@ -257,6 +395,151 @@ fun BrowseScreen(
  * e.g. ["Music/A", "Music/B"] → "Music"
  *      ["Music"] → "Music" (then children of Music are shown, not Music itself as the only entry)
  */
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PlaylistsTab(
+    playlists: List<com.iks.tplayer.data.model.Playlist>,
+    onOpenPlaylist: (Long) -> Unit,
+    onEditPlaylist: (Long) -> Unit,
+    onCreate: (String) -> Unit,
+    onRename: (Long, String) -> Unit,
+    onDelete: (Long) -> Unit
+) {
+    var showCreate by remember { mutableStateOf(false) }
+    var createName by remember { mutableStateOf("") }
+    var menuPlaylistId by remember { mutableStateOf<Long?>(null) }
+    var renameTarget by remember { mutableStateOf<com.iks.tplayer.data.model.Playlist?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<com.iks.tplayer.data.model.Playlist?>(null) }
+
+    LazyColumn {
+        item {
+            ListItem(
+                headlineContent = {
+                    Text("New playlist", maxLines = 1, softWrap = false)
+                },
+                leadingContent = {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                },
+                modifier = Modifier.clickable {
+                    createName = ""
+                    showCreate = true
+                }
+            )
+        }
+        items(playlists, key = { it.id }) { pl ->
+            Box {
+                ListItem(
+                    headlineContent = {
+                        Text(pl.name, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
+                    },
+                    leadingContent = {
+                        Icon(Icons.Default.QueueMusic, contentDescription = null)
+                    },
+                    trailingContent = {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, null)
+                    },
+                    modifier = Modifier.combinedClickable(
+                        onClick = { onOpenPlaylist(pl.id) },
+                        onLongClick = { menuPlaylistId = pl.id }
+                    )
+                )
+                DropdownMenu(
+                    expanded = menuPlaylistId == pl.id,
+                    onDismissRequest = { menuPlaylistId = null }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Edit songs") },
+                        onClick = {
+                            menuPlaylistId = null
+                            onEditPlaylist(pl.id)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Rename") },
+                        onClick = {
+                            menuPlaylistId = null
+                            renameTarget = pl
+                            renameText = pl.name
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        onClick = {
+                            menuPlaylistId = null
+                            deleteTarget = pl
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showCreate) {
+        AlertDialog(
+            onDismissRequest = { showCreate = false },
+            title = { Text("New playlist") },
+            text = {
+                OutlinedTextField(
+                    value = createName,
+                    onValueChange = { createName = it },
+                    singleLine = true,
+                    label = { Text("Name") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onCreate(createName.ifBlank { "Playlist" })
+                    showCreate = false
+                }) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreate = false }) { Text("Cancel") }
+            }
+        )
+    }
+    renameTarget?.let { pl ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename playlist") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    label = { Text("Name") }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onRename(pl.id, renameText)
+                    renameTarget = null
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) { Text("Cancel") }
+            }
+        )
+    }
+    deleteTarget?.let { pl ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete playlist?") },
+            text = { Text("Delete “${pl.name}”? Songs are not removed from the library.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete(pl.id)
+                    deleteTarget = null
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
 private fun commonPathPrefix(paths: List<String>): String {
     if (paths.isEmpty()) return ""
     val normalized = paths.map { it.trim('/').replace('\\', '/') }

@@ -29,6 +29,9 @@ class SettingsViewModel @Inject constructor(
     val allFolders = repository.getAllFolders()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val cloudSources = repository.getCloudSources()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val scanProgress: StateFlow<LibraryScanner.ScanState> = repository.scanProgress
 
     private val _pendingScan = MutableStateFlow<PendingScan?>(null)
@@ -182,4 +185,33 @@ class SettingsViewModel @Inject constructor(
             }
         }
     }
+    fun connectCloud(uri: Uri) {
+        viewModelScope.launch {
+            _statusMessage.value = "Connecting cloud folder…"
+            try {
+                val name = uri.lastPathSegment
+                    ?.substringAfterLast(":")
+                    ?.replace("%2F", "/")
+                    ?.substringAfterLast("/")
+                    ?: "Cloud Drive"
+                repository.scanTree(uri, name, isDefault = false, skipFolders = emptySet(), isCloud = true)
+                _statusMessage.value = "Cloud folder connected and scanned"
+            } catch (e: Exception) {
+                _statusMessage.value = e.message ?: "Cloud connect failed"
+            }
+        }
+    }
+
+    fun removeCloudSource(uri: String) {
+        viewModelScope.launch {
+            try {
+                repository.removeSource(uri)
+                _statusMessage.value = "Cloud connection removed"
+            } catch (e: Exception) {
+                _statusMessage.value = e.message ?: "Remove failed"
+            }
+        }
+    }
+
+
 }

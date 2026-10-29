@@ -416,26 +416,47 @@ class MusicService : MediaLibraryService() {
             val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
             scope.launch {
                 try {
-                    val (resolved, start) = withContext(Dispatchers.IO) {
-                        resolveAndExpandQueue(mediaItems, startIndex)
+                    // Fast path: resolve only what was requested so AA/phone can start
+                    // playback immediately (avoids long "Getting your selection" / retrieving).
+                    val quick = withContext(Dispatchers.IO) { resolveMediaItems(mediaItems) }
+                    if (quick.isEmpty()) {
+                        future.set(MediaSession.MediaItemsWithStartPosition(emptyList(), 0, 0L))
+                        return@launch
                     }
-                    if (resolved.isNotEmpty()) {
-                        queue = withContext(Dispatchers.IO) {
-                            resolved.mapNotNull { item ->
-                                val tid = item.mediaId.removePrefix("track:").toLongOrNull()
-                                tid?.let { musicRepository.getTrackById(it) }
-                            }
+                    val start = startIndex.coerceIn(0, quick.lastIndex)
+                    queue = withContext(Dispatchers.IO) {
+                        quick.mapNotNull { item ->
+                            val tid = item.mediaId.removePrefix("track:").toLongOrNull()
+                                ?: item.mediaId.toLongOrNull()
+                            tid?.let { musicRepository.getTrackById(it) }
                         }
-                        queueIndex = start.coerceIn(0, (resolved.size - 1).coerceAtLeast(0))
                     }
+                    queueIndex = start
                     applyAutoAdvancePolicy()
                     future.set(
-                        MediaSession.MediaItemsWithStartPosition(
-                            resolved,
-                            start.coerceIn(0, (resolved.size - 1).coerceAtLeast(0)),
-                            startPositionMs
-                        )
+                        MediaSession.MediaItemsWithStartPosition(quick, start, startPositionMs)
                     )
+
+                    // Expand to full folder/library queue in the background
+                    launch(Dispatchers.IO) {
+                        try {
+                            val (resolved, expStart) = resolveAndExpandQueue(mediaItems, startIndex)
+                            if (resolved.size <= quick.size) return@launch
+                            val tracks = resolved.mapNotNull { item ->
+                                val tid = item.mediaId.removePrefix("track:").toLongOrNull()
+                                    ?: item.mediaId.toLongOrNull()
+                                tid?.let { musicRepository.getTrackById(it) }
+                            }
+                            withContext(Dispatchers.Main) {
+                                val pos = player.currentPosition.coerceAtLeast(0L)
+                                queue = tracks
+                                queueIndex = expStart.coerceIn(0, (resolved.size - 1).coerceAtLeast(0))
+                                player.setMediaItems(resolved, queueIndex, pos)
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
                 } catch (e: Exception) {
                     e.printStackTrace()
                     future.set(
@@ -527,6 +548,23 @@ class MusicService : MediaLibraryService() {
                             return list.map { trackToPlayableItem(it) } to 0
                         }
                     }
+                    id.startsWith("$ID_PLAYLISTS/") -> {
+                        val plId = id.removePrefix("$ID_PLAYLISTS/").toLongOrNull()
+                        if (plId != null) {
+                            val list = musicRepository.buildPlaylistChainQueue(plId)
+                            if (list.isNotEmpty()) {
+                                return list.map { trackToPlayableItem(it) } to 0
+                            }
+                        }
+                    }
+                    id.startsWith("$ID_CLOUD/") -> {
+                        val name = id.removePrefix("$ID_CLOUD/")
+                        val prefix = "Cloud/$name"
+                        val list = musicRepository.getTracksByFolder(prefix).first()
+                        if (list.isNotEmpty()) {
+                            return list.map { trackToPlayableItem(it) } to 0
+                        }
+                    }
                 }
             }
             // Multi-item play from phone UI / setMediaItems: if they all share one folder,
@@ -607,6 +645,19 @@ class MusicService : MediaLibraryService() {
                         musicRepository.getTracksByFolder(folder).first()
                             .forEach { out.add(trackToPlayableItem(it)) }
                     }
+                    id.startsWith("$ID_PLAYLISTS/") -> {
+                        val plId = id.removePrefix("$ID_PLAYLISTS/").toLongOrNull()
+                        if (plId != null) {
+                            musicRepository.buildPlaylistChainQueue(plId)
+                                .forEach { out.add(trackToPlayableItem(it)) }
+                        }
+                    }
+                    id.startsWith("$ID_CLOUD/") -> {
+                        val name = id.removePrefix("$ID_CLOUD/")
+                        val prefix = "Cloud/$name"
+                        musicRepository.getTracksByFolder(prefix).first()
+                            .forEach { out.add(trackToPlayableItem(it)) }
+                    }
                     id == ID_ALL -> {
                         musicRepository.getAllTracks().first()
                             .forEach { out.add(trackToPlayableItem(it)) }
@@ -681,6 +732,8 @@ class MusicService : MediaLibraryService() {
                             ).build(),
                         folderItem(ID_ARTISTS, "Artists"),
                         folderItem(ID_FOLDERS, "Folders"),
+                        folderItem(ID_PLAYLISTS, "Playlists"),
+                        folderItem(ID_CLOUD, "Cloud"),
                         folderItem(ID_ALL, "All Tracks"),
                         MediaItem.Builder()
                             .setMediaId(ID_NOW_PLAYING)
@@ -707,6 +760,56 @@ class MusicService : MediaLibraryService() {
                 parentId.startsWith("$ID_FOLDERS/") -> {
                     val folder = parentId.removePrefix("$ID_FOLDERS/")
                     musicRepository.getTracksByFolder(folder).first().map { trackBrowseItem(it) }
+                }
+                parentId == ID_PLAYLISTS -> {
+                    musicRepository.getAllPlaylists().first().map { pl ->
+                        folderItem("$ID_PLAYLISTS/${pl.id}", pl.name)
+                    }
+                }
+                parentId.startsWith("$ID_PLAYLISTS/") -> {
+                    val id = parentId.removePrefix("$ID_PLAYLISTS/").toLongOrNull()
+                    if (id == null) emptyList()
+                    else musicRepository.getTracksForPlaylist(id).first().map { trackBrowseItem(it) }
+                }
+                parentId == ID_CLOUD -> {
+                    val sources = musicRepository.getCloudSourcesList()
+                    if (sources.isNotEmpty()) {
+                        sources.map { src ->
+                            folderItem("$ID_CLOUD/${src.displayName}", src.displayName)
+                        }
+                    } else {
+                        // Fallback: any folder paths tagged as Cloud/...
+                        musicRepository.getAllFolders().first()
+                            .filter { it.startsWith("Cloud/") }
+                            .map { path ->
+                                val name = path.removePrefix("Cloud/").substringBefore('/')
+                                path to name
+                            }
+                            .distinctBy { it.second }
+                            .map { (path, name) ->
+                                folderItem("$ID_CLOUD/$name", name.ifBlank { path })
+                            }
+                    }
+                }
+                parentId.startsWith("$ID_CLOUD/") -> {
+                    val name = parentId.removePrefix("$ID_CLOUD/")
+                    val prefix = "Cloud/$name"
+                    // Child folders under this cloud root
+                    val allFolders = musicRepository.getAllFolders().first()
+                        .filter { it == prefix || it.startsWith("$prefix/") }
+                    val childNames = allFolders
+                        .mapNotNull { fp ->
+                            val rest = fp.removePrefix(prefix).trimStart('/')
+                            if (rest.isEmpty()) null else rest.substringBefore('/')
+                        }
+                        .distinct()
+                        .sorted()
+                    val folders = childNames.map { child ->
+                        folderItem("$ID_CLOUD/$name/$child", child)
+                    }
+                    val tracks = musicRepository.getTracksByFolder(prefix).first()
+                        .map { trackBrowseItem(it) }
+                    folders + tracks
                 }
                 parentId == ID_ALL ->
                     musicRepository.getAllTracks().first().map { trackBrowseItem(it) }
@@ -1018,6 +1121,8 @@ class MusicService : MediaLibraryService() {
         const val ROOT_ID = "root"
         const val ID_ARTISTS = "artists"
         const val ID_FOLDERS = "folders"
+        const val ID_PLAYLISTS = "playlists"
+        const val ID_CLOUD = "cloud"
         const val ID_ALL = "all"
         const val ID_NOW_PLAYING = "now_playing"
         const val ID_RESUME_LAST = "resume_last"

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -70,6 +71,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -80,7 +82,9 @@ import androidx.lifecycle.viewModelScope
 import coil.compose.AsyncImage
 import com.iks.tplayer.data.preferences.AppSettings
 import com.iks.tplayer.data.preferences.UserPreferences
+import com.iks.tplayer.data.model.Track
 import com.iks.tplayer.player.PlayerController
+import com.iks.tplayer.util.TossHelper
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
@@ -256,6 +260,7 @@ fun NowPlayingScreen(
                         Spacer(Modifier.height(8.dp))
                         PlaybackControlsBlock(
                             playerController = playerController,
+                            track = track,
                             isPlaying = isPlaying,
                             isRewinding = isRewinding,
                             speed = speed,
@@ -295,6 +300,7 @@ fun NowPlayingScreen(
                     }
                     PlaybackControlsBlock(
                         playerController = playerController,
+                        track = track,
                         isPlaying = isPlaying,
                         isRewinding = isRewinding,
                         speed = speed,
@@ -530,12 +536,15 @@ private fun AlbumDisc(
 @Composable
 private fun PlaybackControlsBlock(
     playerController: PlayerController,
+    track: Track?,
     isPlaying: Boolean,
     isRewinding: Boolean,
     speed: Float,
     position: Long,
     duration: Long
 ) {
+    val context = LocalContext.current
+
     if (speed != 1.0f || isRewinding) {
         Text(
             text = if (isRewinding) "⏪ ${speed.toInt()}×" else "${speed.toInt()}×",
@@ -613,7 +622,35 @@ private fun PlaybackControlsBlock(
         )
     }
 
-    Spacer(Modifier.height(12.dp))
+    Spacer(Modifier.height(8.dp))
+
+    // Phone-only: Toss current file to another device (share / Nearby Share; NFC tip if available)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        FilledIconButton(
+            onClick = { TossHelper.tossTrack(context, track) },
+            enabled = track != null,
+            modifier = Modifier.size(48.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = Color(0xFF69F0AE).copy(alpha = 0.25f),
+                contentColor = Color(0xFF69F0AE),
+                disabledContainerColor = Color.White.copy(alpha = 0.08f),
+                disabledContentColor = Color.White.copy(alpha = 0.3f)
+            )
+        ) {
+            Icon(Icons.Default.Send, contentDescription = "Toss", modifier = Modifier.size(22.dp))
+        }
+    }
+    Text(
+        text = "Toss",
+        style = MaterialTheme.typography.labelSmall,
+        color = Color.White.copy(alpha = 0.75f),
+        maxLines = 1
+    )
+
+    Spacer(Modifier.height(8.dp))
 
     Row(
         modifier = Modifier
@@ -692,26 +729,47 @@ private fun VuMeterScreen(
     isPlaying: Boolean,
     onDismiss: () -> Unit
 ) {
-    val barCount = 32
-    val levels = remember { FloatArray(barCount) { 0.15f } }
-    var frame by remember { mutableIntStateOf(0) }
+    val barCount = 48
+    // Snapshot state so every frame triggers a redraw (previous FloatArray did not)
+    var levels by remember { mutableStateOf(List(barCount) { 0.12f }) }
+    var peaks by remember { mutableStateOf(List(barCount) { 0.12f }) }
 
     LaunchedEffect(isPlaying) {
         while (true) {
-            withFrameMillis {
-                frame++
-                val tSec = frame / 60f
+            withFrameMillis { timeMs ->
+                val tSec = timeMs / 1000.0
+                val next = MutableList(barCount) { 0f }
+                val nextPeaks = peaks.toMutableList()
                 for (i in 0 until barCount) {
+                    // Symmetric spectrum-style shape: stronger in the middle-low band
+                    val centerBias = 1f - (kotlin.math.abs(i - barCount / 2f) / (barCount / 2f))
                     val base = if (isPlaying) {
-                        val wave = (sin(tSec * 6.0 + i * 0.45) + 1.0) * 0.5
-                        val pulse = (sin(tSec * 2.2 + i * 0.2) + 1.0) * 0.25
-                        val jitter = Random.nextFloat() * 0.2f
-                        (0.2 + wave * 0.55 + pulse + jitter).toFloat().coerceIn(0.08f, 1f)
+                        val w1 = (sin(tSec * 8.5 + i * 0.55) + 1.0) * 0.5
+                        val w2 = (sin(tSec * 3.1 + i * 0.18) + 1.0) * 0.5
+                        val w3 = (sin(tSec * 14.0 + i * 1.1) + 1.0) * 0.25
+                        val jitter = Random.nextFloat() * 0.35
+                        val raw = (0.08 + w1 * 0.45 + w2 * 0.25 + w3 * 0.2 + jitter) *
+                            (0.45 + centerBias * 0.55)
+                        raw.toFloat().coerceIn(0.05f, 1f)
                     } else {
-                        (levels[i] * 0.92f).coerceAtLeast(0.06f)
+                        (levels[i] * 0.88f).coerceAtLeast(0.04f)
                     }
-                    levels[i] = levels[i] * 0.55f + base * 0.45f
+                    // Smooth rise, faster fall
+                    val prev = levels[i]
+                    next[i] = if (base > prev) {
+                        prev * 0.35f + base * 0.65f
+                    } else {
+                        prev * 0.72f + base * 0.28f
+                    }
+                    // Peak hold with slow decay
+                    nextPeaks[i] = if (next[i] > nextPeaks[i]) {
+                        next[i]
+                    } else {
+                        (nextPeaks[i] - 0.012f).coerceAtLeast(next[i])
+                    }
                 }
+                levels = next
+                peaks = nextPeaks
             }
         }
     }
@@ -719,7 +777,7 @@ private fun VuMeterScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0A0A))
+            .background(Color(0xFF050508))
             .pointerInput(Unit) {
                 detectTapGestures { onDismiss() }
             }
@@ -727,37 +785,77 @@ private fun VuMeterScreen(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 48.dp)
+                .padding(horizontal = 10.dp, vertical = 40.dp)
         ) {
+            // Read state so Compose tracks them for redraw
+            val lv = levels
+            val pk = peaks
             val w = size.width
-            val h = size.height * 0.78f
-            val gap = 4.dp.toPx()
+            val h = size.height * 0.72f
+            val gap = 2.5.dp.toPx()
             val barW = ((w - gap * (barCount - 1)) / barCount).coerceAtLeast(2f)
-            val top = size.height * 0.08f
+            val top = size.height * 0.1f
+            val midY = top + h
+
             for (i in 0 until barCount) {
-                val level = levels[i]
+                val level = lv[i]
+                val peak = pk[i]
                 val barH = h * level
                 val x = i * (barW + gap)
-                val y = top + (h - barH)
+                val y = midY - barH
+
+                // Color gradient by height
                 val color = when {
-                    level > 0.85f -> Color(0xFFFF5252)
-                    level > 0.6f -> Color(0xFFFFD740)
-                    else -> Color(0xFF69F0AE)
+                    level > 0.88f -> Color(0xFFFF1744)
+                    level > 0.72f -> Color(0xFFFF9100)
+                    level > 0.45f -> Color(0xFFFFEA00)
+                    else -> Color(0xFF00E676)
                 }
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(x, y),
-                    size = Size(barW, barH),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx(), 3.dp.toPx())
+
+                // Segmented bar look
+                val segmentH = 4.dp.toPx()
+                val segmentGap = 1.5.dp.toPx()
+                var segY = midY - segmentH
+                while (segY >= y) {
+                    val segLevel = ((midY - segY) / h).coerceIn(0f, 1f)
+                    val segColor = when {
+                        segLevel > 0.88f -> Color(0xFFFF1744)
+                        segLevel > 0.72f -> Color(0xFFFF9100)
+                        segLevel > 0.45f -> Color(0xFFFFEA00)
+                        else -> Color(0xFF00E676)
+                    }
+                    drawRoundRect(
+                        color = segColor.copy(alpha = 0.95f),
+                        topLeft = Offset(x, segY),
+                        size = Size(barW, segmentH),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5.dp.toPx(), 1.5.dp.toPx())
+                    )
+                    segY -= (segmentH + segmentGap)
+                }
+
+                // Peak indicator
+                val peakY = midY - h * peak
+                drawRect(
+                    color = Color.White.copy(alpha = 0.9f),
+                    topLeft = Offset(x, peakY),
+                    size = Size(barW, 2.dp.toPx())
                 )
             }
+
+            // Subtle baseline
+            drawLine(
+                color = Color.White.copy(alpha = 0.15f),
+                start = Offset(0f, midY + 2.dp.toPx()),
+                end = Offset(w, midY + 2.dp.toPx()),
+                strokeWidth = 1.dp.toPx()
+            )
         }
 
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.55f))
+                .background(Color.Black.copy(alpha = 0.6f))
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -784,7 +882,7 @@ private fun VuMeterScreen(
                 )
             }
             Text(
-                text = "Tap to return",
+                text = if (isPlaying) "Live display · Tap to return" else "Paused · Tap to return",
                 color = Color.White.copy(alpha = 0.45f),
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1
@@ -792,6 +890,7 @@ private fun VuMeterScreen(
         }
     }
 }
+
 
 private fun angleFromCenter(pos: Offset, center: Offset): Double {
     val dx = pos.x - center.x

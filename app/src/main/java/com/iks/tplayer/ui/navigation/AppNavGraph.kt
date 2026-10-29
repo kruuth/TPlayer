@@ -21,6 +21,7 @@ import com.iks.tplayer.data.repository.MusicRepository
 import com.iks.tplayer.player.PlayerController
 import com.iks.tplayer.ui.screens.browse.BrowseScreen
 import com.iks.tplayer.ui.screens.browse.SearchScreen
+import com.iks.tplayer.ui.screens.browse.PlaylistEditScreen
 import com.iks.tplayer.ui.screens.browse.TrackListScreen
 import com.iks.tplayer.ui.screens.player.NowPlayingScreen
 import com.iks.tplayer.ui.screens.settings.SettingsScreen
@@ -37,6 +38,7 @@ object Routes {
     const val NOW_PLAYING = "now_playing"
     const val SETTINGS = "settings"
     const val SEARCH = "search"
+    const val PLAYLIST_EDIT = "playlist_edit/{id}"
 }
 
 @HiltViewModel
@@ -55,7 +57,15 @@ class StartDestinationViewModel @Inject constructor(
                 playerController.restoreLastPlayback()
                 startRoute = Routes.NOW_PLAYING
             } else {
-                startRoute = Routes.SOURCE
+                // DB may be empty after an old destructive upgrade, but sources
+                // can still be present — send user to browse/settings rather than
+                // forcing a full re-pick when a source URI is already known.
+                val sources = repository.getSources().first()
+                if (sources.isNotEmpty()) {
+                    startRoute = Routes.BROWSE
+                } else {
+                    startRoute = Routes.SOURCE
+                }
             }
         }
     }
@@ -97,7 +107,20 @@ fun AppNavGraph(
                 },
                 onOpenPlayer = { navController.navigate(Routes.NOW_PLAYING) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
-                onOpenSearch = { navController.navigate(Routes.SEARCH) }
+                onOpenSearch = { navController.navigate(Routes.SEARCH) },
+                onEditPlaylist = { id ->
+                    navController.navigate("playlist_edit/$id")
+                }
+            )
+        }
+        composable(
+            route = Routes.PLAYLIST_EDIT,
+            arguments = listOf(navArgument("id") { type = NavType.LongType })
+        ) { backStack ->
+            val id = backStack.arguments?.getLong("id") ?: -1L
+            PlaylistEditScreen(
+                playlistId = id,
+                onBack = { navController.popBackStack() }
             )
         }
         composable(

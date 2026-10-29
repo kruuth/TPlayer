@@ -14,6 +14,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -43,6 +45,7 @@ fun SettingsScreen(
     val skips by viewModel.selectedSkips.collectAsState()
     val listing by viewModel.listingFolders.collectAsState()
     val status by viewModel.statusMessage.collectAsState()
+    val cloudSources by viewModel.cloudSources.collectAsState()
 
     // OpenDocumentTree with persistable read permission flags
     val folderLauncher = rememberLauncherForActivityResult(
@@ -61,6 +64,22 @@ fun SettingsScreen(
         if (uri != null) {
             viewModel.prepareCustomRoot(uri)
         }
+    }
+
+    val cloudLauncher = rememberLauncherForActivityResult(
+        contract = object : ActivityResultContracts.OpenDocumentTree() {
+            override fun createIntent(context: android.content.Context, input: Uri?): Intent {
+                return super.createIntent(context, input).apply {
+                    addFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+                    )
+                }
+            }
+        }
+    ) { uri: Uri? ->
+        if (uri != null) viewModel.connectCloud(uri)
     }
 
     val defaultArtLauncher = rememberLauncherForActivityResult(
@@ -110,7 +129,58 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item {
-                Text("Theme", style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
+                
+                Text("Cloud drives", style = MaterialTheme.typography.titleSmall, maxLines = 1, softWrap = false)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Connect Google Drive, OneDrive, or any provider in the system folder picker. Files are scanned and shown under the Cloud tab.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { cloudLauncher.launch(null) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.CloudUpload, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Connect cloud folder", maxLines = 1)
+                }
+                Spacer(Modifier.height(8.dp))
+                if (cloudSources.isEmpty()) {
+                    Text(
+                        "No cloud connections yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    cloudSources.forEach { src ->
+                        ListItem(
+                            headlineContent = {
+                                Text(src.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
+                            },
+                            supportingContent = {
+                                Text(
+                                    "Cloud connection",
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            },
+                            leadingContent = { Icon(Icons.Default.Cloud, contentDescription = null) },
+                            trailingContent = {
+                                IconButton(onClick = { viewModel.removeCloudSource(src.uri) }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Disconnect")
+                                }
+                            }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+
+Text("Theme", style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ThemeMode.entries.forEach { mode ->

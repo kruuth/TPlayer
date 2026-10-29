@@ -113,13 +113,37 @@ class PlayerController @Inject constructor(
     fun setQueue(tracks: List<Track>, startIndex: Int = 0) {
         currentQueue = tracks
         currentIndex = startIndex.coerceIn(0, tracks.lastIndex.coerceAtLeast(0))
-        val items = tracks.map { trackToMediaItem(it) }
-        controller?.setMediaItems(items, currentIndex, 0L)
-        controller?.prepare()
-        if (tracks.isNotEmpty()) {
-            _currentTrack.value = tracks[currentIndex]
-            _duration.value = tracks[currentIndex].durationMs
-            persistLastTrack()
+        if (tracks.isEmpty()) {
+            controller?.clearMediaItems()
+            _currentTrack.value = null
+            return
+        }
+        val startTrack = tracks[currentIndex]
+        // Update UI immediately (title/artist from DB — no file open needed)
+        _currentTrack.value = startTrack
+        _duration.value = startTrack.durationMs
+        persistLastTrack()
+
+        // Start playback ASAP with only the selected track (avoids "retrieving" delay
+        // from building thousands of MediaItems before the first sample plays).
+        val c = controller
+        if (c != null) {
+            c.setMediaItem(trackToMediaItem(startTrack), /* resetPosition= */ true)
+            c.prepare()
+        }
+
+        // Expand to full queue in the background without blocking start
+        if (tracks.size > 1) {
+            scope.launch {
+                try {
+                    val items = tracks.map { trackToMediaItem(it) }
+                    val pos = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
+                    // Replace queue but keep the same index / position so audio continues
+                    controller?.setMediaItems(items, currentIndex, pos)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 

@@ -8,5 +8,7 @@ data class SourceFolder(
     @PrimaryKey val uri: String,          // tree URI string
     val displayName: String,
     val isDefault: Boolean = false,
-    val lastScanned: Long = 0L
+    val lastScanned: Long = 0L,
+    /** True when added via Settings → Cloud (Drive, OneDrive, etc. via system picker) */
+    val isCloud: Boolean = false
 )
