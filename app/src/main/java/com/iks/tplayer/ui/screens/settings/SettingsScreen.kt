@@ -523,6 +523,31 @@ Text("Theme", style = MaterialTheme.typography.titleMedium, maxLines = 1, softWr
                 HorizontalDivider()
             }
 
+            item {
+                Spacer(Modifier.height(24.dp))
+                Text("About", style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "TPlayer",
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Text(
+                    "Version ${viewModel.appVersionName} (${viewModel.appVersionCode})",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    viewModel.aboutText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
             item { Spacer(Modifier.height(32.dp)) }
         }
     }

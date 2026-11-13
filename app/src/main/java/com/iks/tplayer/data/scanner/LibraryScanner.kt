@@ -391,6 +391,7 @@ class LibraryScanner @Inject constructor(
         }
         return "${parts.size}:$totalBytes:" + parts.joinToString("|").hashCode()
     }
+
     private fun fingerprintFromDocs(docs: List<DocumentFile>): String {
         // Stable signature of library contents without reading tags
         val parts = docs.mapNotNull { d ->

@@ -119,32 +119,17 @@ class PlayerController @Inject constructor(
             return
         }
         val startTrack = tracks[currentIndex]
-        // Update UI immediately (title/artist from DB — no file open needed)
+        // Update UI immediately from DB metadata
         _currentTrack.value = startTrack
         _duration.value = startTrack.durationMs
         persistLastTrack()
 
-        // Start playback ASAP with only the selected track (avoids "retrieving" delay
-        // from building thousands of MediaItems before the first sample plays).
-        val c = controller
-        if (c != null) {
-            c.setMediaItem(trackToMediaItem(startTrack), /* resetPosition= */ true)
-            c.prepare()
-        }
-
-        // Expand to full queue in the background without blocking start
-        if (tracks.size > 1) {
-            scope.launch {
-                try {
-                    val items = tracks.map { trackToMediaItem(it) }
-                    val pos = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
-                    // Replace queue but keep the same index / position so audio continues
-                    controller?.setMediaItems(items, currentIndex, pos)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
+        // Single setMediaItems call with the correct start index.
+        // (Previously we set one item then replaced the queue async, which raced with
+        // MusicService queue expansion and often jumped to the first track in the folder.)
+        val items = tracks.map { trackToMediaItem(it) }
+        controller?.setMediaItems(items, currentIndex, /* startPositionMs= */ 0L)
+        controller?.prepare()
     }
 
     /** Load last played track (or first in library) without auto-playing. */
@@ -423,7 +408,7 @@ class PlayerController @Inject constructor(
         }
         return MediaItem.Builder()
             .setUri(track.uri)
-            .setMediaId(track.id.toString())
+            .setMediaId("track:${track.id}")
             .setMediaMetadata(metaBuilder.build())
             .build()
     }

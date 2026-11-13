@@ -114,6 +114,7 @@ class MusicService : MediaLibraryService() {
             }
         })
         scope.launch { applyAutoAdvancePolicy() }
+        restoreLastTrackCue()
 
         val sessionActivity = PendingIntent.getActivity(
             this, 0,
@@ -311,6 +312,7 @@ class MusicService : MediaLibraryService() {
                 .add(SessionCommand(CMD_NEXT_TRACK, Bundle.EMPTY))
                 .add(SessionCommand(CMD_PREV_TRACK, Bundle.EMPTY))
                 .add(SessionCommand(CMD_TOGGLE_REPEAT, Bundle.EMPTY))
+                .add(SessionCommand(ACTION_PLAY_LAST, Bundle.EMPTY))
                 .build()
             // Explicitly advertise track skip so AA shows Previous / Next on the playback UI
             val playerCmds = result.availablePlayerCommands.buildUpon()
@@ -362,6 +364,7 @@ class MusicService : MediaLibraryService() {
                     else showSteeringFeedback("FIRST FOLDER")
                 }
                 CMD_TOGGLE_REPEAT -> toggleRepeatMode()
+                ACTION_PLAY_LAST -> playLastTrackFromBrowse()
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
@@ -433,9 +436,25 @@ class MusicService : MediaLibraryService() {
                     }
                     queueIndex = start
                     applyAutoAdvancePolicy()
+
+                    // Resume / Now Playing: jump to saved position and start playback
+                    val resumeIds = setOf(ID_RESUME_LAST, ID_NOW_PLAYING)
+                    val isResume = mediaItems.any { it.mediaId in resumeIds }
+                    var position = startPositionMs
+                    if (isResume) {
+                        val settings = userPreferences.settings.first()
+                        if (startPositionMs <= 0L && settings.lastPositionMs > 0L) {
+                            position = settings.lastPositionMs
+                        }
+                    }
                     future.set(
-                        MediaSession.MediaItemsWithStartPosition(quick, start, startPositionMs)
+                        MediaSession.MediaItemsWithStartPosition(quick, start, position)
                     )
+                    if (isResume) {
+                        // Host may not auto-play browse selections the same way — force play
+                        player.playWhenReady = true
+                        player.play()
+                    }
 
                     // Expand to full folder/library queue in the background
                     launch(Dispatchers.IO) {
@@ -490,14 +509,58 @@ class MusicService : MediaLibraryService() {
          * Single-track (or single-folder) play requests expand to this full queue so that
          * advancing past the last song in e.g. "1990" continues into the next folder.
          */
+        /** Sort key aligned with folder browse (SQL title, else file name). */
+        private fun trackListSortKey(t: com.iks.tplayer.data.model.Track): String =
+            (t.title?.takeIf { it.isNotBlank() } ?: t.fileName).trim().lowercase()
+
+        /**
+         * Global library order: folder path, then title/fileName (same idea as the
+         * file browser), then track number, then id for stability.
+         */
         private suspend fun libraryQueueSorted(): List<com.iks.tplayer.data.model.Track> {
             return musicRepository.getAllTracks().first()
                 .sortedWith(
                     compareBy(
                         { it.folderPath.lowercase() },
-                        { it.displayTitle.lowercase() }
+                        { trackListSortKey(it) },
+                        { it.trackNumber ?: Int.MAX_VALUE },
+                        { it.id }
                     )
                 )
+        }
+
+        /**
+         * Queue when the user picks a track in the AA file browser:
+         * 1) All tracks in that exact folder, in browse order (title/fileName)
+         * 2) Then the rest of the library after that folder (so end-of-folder still advances)
+         * Start index is the selected track within the folder segment — so "next"
+         * matches the order shown in the folder list.
+         */
+        private suspend fun queueFromSelectedTrack(
+            track: com.iks.tplayer.data.model.Track
+        ): Pair<List<MediaItem>, Int> {
+            val all = libraryQueueSorted()
+            val folder = track.folderPath
+            val sameFolder = all.filter { it.folderPath == folder }
+            val startInFolder = sameFolder.indexOfFirst { it.id == track.id }.let {
+                if (it >= 0) it else 0
+            }
+            // Everything in global order after the last track of this folder
+            val lastFolderTrackId = sameFolder.lastOrNull()?.id
+            val lastGlobalIdx = lastFolderTrackId?.let { id ->
+                all.indexOfFirst { it.id == id }
+            } ?: -1
+            val afterFolder = if (lastGlobalIdx >= 0 && lastGlobalIdx < all.lastIndex) {
+                all.subList(lastGlobalIdx + 1, all.size)
+                    .filter { it.folderPath != folder }
+            } else {
+                emptyList()
+            }
+            val queueTracks = sameFolder + afterFolder
+            if (queueTracks.isEmpty()) {
+                return listOf(trackToPlayableItem(track)) to 0
+            }
+            return queueTracks.map { trackToPlayableItem(it) } to startInFolder.coerceIn(0, queueTracks.lastIndex)
         }
 
         private suspend fun resolveAndExpandQueue(
@@ -508,18 +571,26 @@ class MusicService : MediaLibraryService() {
             if (mediaItems.size == 1) {
                 val id = mediaItems[0].mediaId
                 when {
+                    id == ID_RESUME_LAST || id == ID_NOW_PLAYING -> {
+                        val settings = userPreferences.settings.first()
+                        val all = libraryQueueSorted()
+                        if (all.isNotEmpty()) {
+                            val startId = when {
+                                player.mediaItemCount > 0 ->
+                                    player.currentMediaItem?.mediaId
+                                        ?.removePrefix("track:")?.toLongOrNull()
+                                queue.isNotEmpty() -> queue.getOrNull(queueIndex)?.id
+                                else -> settings.lastTrackId.takeIf { it > 0 }
+                            }
+                            val idx = all.indexOfFirst { it.id == startId }.let { if (it >= 0) it else 0 }
+                            return all.map { trackToPlayableItem(it) } to idx
+                        }
+                    }
                     id.startsWith("track:") -> {
                         val trackId = id.removePrefix("track:").toLongOrNull()
                         val track = trackId?.let { musicRepository.getTrackById(it) }
                         if (track != null) {
-                            val all = libraryQueueSorted()
-                            if (all.isNotEmpty()) {
-                                val items = all.map { trackToPlayableItem(it) }
-                                val idx = all.indexOfFirst { it.id == track.id }.let {
-                                    if (it >= 0) it else 0
-                                }
-                                return items to idx
-                            }
+                            return queueFromSelectedTrack(track)
                         }
                     }
                     id.startsWith("$ID_FOLDERS/") -> {
@@ -535,13 +606,14 @@ class MusicService : MediaLibraryService() {
                     }
                     id.startsWith("$ID_ARTISTS/") -> {
                         val artist = id.removePrefix("$ID_ARTISTS/")
-                        // Artist play: keep artist order, but after last song of last album
-                        // fall through isn't cross-folder; still load artist list sorted by album/title
+                        // Match artist browse / DB order: album, track number, title
                         val list = musicRepository.getTracksByArtist(artist).first()
                             .sortedWith(
                                 compareBy(
-                                    { it.folderPath.lowercase() },
-                                    { it.displayTitle.lowercase() }
+                                    { it.album?.lowercase() ?: "" },
+                                    { it.trackNumber ?: Int.MAX_VALUE },
+                                    { trackListSortKey(it) },
+                                    { it.id }
                                 )
                             )
                         if (list.isNotEmpty()) {
@@ -570,27 +642,35 @@ class MusicService : MediaLibraryService() {
             // Multi-item play from phone UI / setMediaItems: if they all share one folder,
             // still expand to full library so end-of-folder advances to the next folder.
             val resolved = resolveMediaItems(mediaItems)
+            if (resolved.isEmpty()) return emptyList<MediaItem>() to 0
+
+            // Prefer the track the user actually tapped (requestedStart), matched by mediaId
+            fun idOf(item: MediaItem): Long? =
+                item.mediaId.removePrefix("track:").toLongOrNull()
+
+            val requested = mediaItems.getOrNull(requestedStart.coerceIn(0, mediaItems.lastIndex))
+            val requestedTrackId = requested?.let { idOf(it) }
+                ?: resolved.getOrNull(requestedStart.coerceIn(0, resolved.lastIndex))?.let { idOf(it) }
+
             if (resolved.size > 1) {
-                val trackIds = resolved.mapNotNull {
-                    it.mediaId.removePrefix("track:").toLongOrNull()
-                }
+                val trackIds = resolved.mapNotNull { idOf(it) }
                 val tracks = trackIds.mapNotNull { musicRepository.getTrackById(it) }
                 val folders = tracks.map { it.folderPath }.toSet()
                 if (folders.size == 1 && tracks.isNotEmpty()) {
-                    val startTrackId = tracks.getOrNull(
-                        requestedStart.coerceIn(0, tracks.lastIndex)
-                    )?.id
-                    val all = libraryQueueSorted()
-                    if (all.isNotEmpty()) {
-                        val items = all.map { trackToPlayableItem(it) }
-                        val idx = all.indexOfFirst { it.id == startTrackId }.let {
-                            if (it >= 0) it else 0
-                        }
-                        return items to idx
-                    }
+                    val startTrackId = requestedTrackId
+                        ?: tracks.getOrNull(requestedStart.coerceIn(0, tracks.lastIndex))?.id
+                    val startTrack = startTrackId?.let { musicRepository.getTrackById(it) }
+                        ?: tracks.first()
+                    // Preserve folder browse order from the selected song, then later folders
+                    return queueFromSelectedTrack(startTrack)
                 }
             }
-            val start = requestedStart.coerceIn(0, (resolved.size - 1).coerceAtLeast(0))
+            // Keep the list as-is but force start onto the requested track when possible
+            val startById = requestedTrackId?.let { tid ->
+                resolved.indexOfFirst { idOf(it) == tid }.takeIf { it >= 0 }
+            }
+            val start = startById
+                ?: requestedStart.coerceIn(0, (resolved.size - 1).coerceAtLeast(0))
             return resolved to start
         }
 
@@ -604,34 +684,26 @@ class MusicService : MediaLibraryService() {
                         val track = musicRepository.getTrackById(trackId) ?: continue
                         out.add(trackToPlayableItem(track))
                     }
-                    id == ID_RESUME_LAST -> {
-                        val settings = userPreferences.settings.first()
-                        val all = musicRepository.getAllTracks().first()
-                        if (all.isNotEmpty()) {
-                            val idx = all.indexOfFirst { it.id == settings.lastTrackId }.let {
-                                if (it >= 0) it else 0
+                    id == ID_RESUME_LAST || id == ID_NOW_PLAYING -> {
+                        // Prefer whatever is already loaded in the player / service queue
+                        when {
+                            player.mediaItemCount > 0 -> {
+                                val idx = player.currentMediaItemIndex.coerceIn(0, player.mediaItemCount - 1)
+                                out.add(player.getMediaItemAt(idx))
                             }
-                            // Full queue starting at last track so next/prev work
-                            all.forEach { out.add(trackToPlayableItem(it)) }
-                            // Caller uses startIndex 0 by default; we reorder so last is first
-                            if (idx > 0) {
-                                val rotated = all.drop(idx) + all.take(idx)
-                                out.clear()
-                                rotated.forEach { out.add(trackToPlayableItem(it)) }
+                            queue.isNotEmpty() -> {
+                                val idx = queueIndex.coerceIn(0, queue.lastIndex)
+                                out.add(trackToPlayableItem(queue[idx]))
                             }
-                        }
-                    }
-                    id == ID_NOW_PLAYING -> {
-                        if (player.mediaItemCount > 0) {
-                            for (i in 0 until player.mediaItemCount) {
-                                out.add(player.getMediaItemAt(i))
-                            }
-                        } else if (queue.isNotEmpty()) {
-                            queue.forEach { out.add(trackToPlayableItem(it)) }
-                        } else {
-                            // Fallback: all tracks so AA can still play something
-                            musicRepository.getAllTracks().first().forEach {
-                                out.add(trackToPlayableItem(it))
+                            else -> {
+                                // Long idle: restore last track from preferences (queue expands after play)
+                                val settings = userPreferences.settings.first()
+                                val track = settings.lastTrackId.takeIf { it > 0 }
+                                    ?.let { musicRepository.getTrackById(it) }
+                                    ?: musicRepository.getAllTracksList().firstOrNull()
+                                if (track != null) {
+                                    out.add(trackToPlayableItem(track))
+                                }
                             }
                         }
                     }
@@ -676,6 +748,20 @@ class MusicService : MediaLibraryService() {
             val extras = Bundle().apply {
                 putInt("android.media.browse.CONTENT_STYLE_BROWSABLE_HINT", 1)
                 putInt("android.media.browse.CONTENT_STYLE_PLAYABLE_HINT", 1)
+                putBoolean("android.media.browse.SEARCH_SUPPORTED", true)
+                // Custom browse action → AA secondary toolbar under Search (when supported)
+                val playLastAction = Bundle().apply {
+                    putString(KEY_CUSTOM_ACTION_ID, ACTION_PLAY_LAST)
+                    putString(KEY_CUSTOM_ACTION_LABEL, "Last played")
+                    putString(
+                        KEY_CUSTOM_ACTION_ICON_URI,
+                        "android.resource://${packageName}/drawable/ic_launcher_foreground"
+                    )
+                }
+                putParcelableArrayList(
+                    KEY_CUSTOM_ACTION_ROOT_LIST,
+                    arrayListOf(playLastAction)
+                )
             }
             val root = MediaItem.Builder()
                 .setMediaId(ROOT_ID)
@@ -715,86 +801,148 @@ class MusicService : MediaLibraryService() {
             return future
         }
 
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            scope.launch {
+                try {
+                    val items = withContext(Dispatchers.IO) {
+                        val out = mutableListOf<MediaItem>()
+                        // Always first: play last / current song (above other hits in search UI)
+                        out.add(continueLastSongItem())
+                        val q = query.trim()
+                        if (q.isNotEmpty()) {
+                            musicRepository.searchTracks(q).first().forEach { track ->
+                                out.add(trackBrowseItem(track))
+                            }
+                        } else {
+                            // Empty query: still offer last song prominently
+                            val settings = userPreferences.settings.first()
+                            settings.lastTrackId.takeIf { it > 0 }
+                                ?.let { musicRepository.getTrackById(it) }
+                                ?.let { out.add(trackBrowseItem(it)) }
+                        }
+                        out
+                    }
+                    future.set(LibraryResult.ofItemList(items, params))
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    future.set(LibraryResult.ofError(SessionError.ERROR_IO))
+                }
+            }
+            return future
+        }
+
+        /** Always available on browse screens — resume last / current track after idle. */
+        /**
+         * Top row on every AA browse list: jump back to what is playing,
+         * or the last song that was playing after a long idle.
+         */
+        private suspend fun continueLastSongItem(): MediaItem {
+            val settings = userPreferences.settings.first()
+            val last = settings.lastTrackId.takeIf { it > 0 }?.let { musicRepository.getTrackById(it) }
+            val playing = player.mediaItemCount > 0 &&
+                (player.isPlaying || player.playbackState == Player.STATE_READY ||
+                    player.playbackState == Player.STATE_BUFFERING ||
+                    player.playWhenReady)
+            val curTitle = player.currentMediaItem?.mediaMetadata?.title?.toString()?.trim()
+            val (mediaId, title) = when {
+                player.mediaItemCount > 0 && !curTitle.isNullOrBlank() ->
+                    ID_NOW_PLAYING to "▶ Play now: $curTitle"
+                player.mediaItemCount > 0 ->
+                    ID_NOW_PLAYING to "▶ Play current song"
+                last != null ->
+                    ID_RESUME_LAST to "▶ Play last song: ${last.displayTitle}"
+                else ->
+                    ID_RESUME_LAST to "▶ Play last song"
+            }
+            return MediaItem.Builder()
+                .setMediaId(mediaId)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(title)
+                        .setDisplayTitle(title)
+                        .setIsBrowsable(false)
+                        .setIsPlayable(true)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                        .build()
+                ).build()
+        }
+
         private suspend fun buildChildren(parentId: String): List<MediaItem> {
+            val continueItem = continueLastSongItem()
             return when {
                 parentId == ROOT_ID -> {
-                    // Selection screen first; Play last track is a one-tap resume
+                    // First row is always Now Playing / Last played (continueItem)
                     listOf(
-                        MediaItem.Builder()
-                            .setMediaId(ID_RESUME_LAST)
-                            .setMediaMetadata(
-                                MediaMetadata.Builder()
-                                    .setTitle("Play last track")
-                                    .setIsBrowsable(false)
-                                    .setIsPlayable(true)
-                                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                                    .build()
-                            ).build(),
+                        continueItem,
                         folderItem(ID_ARTISTS, "Artists"),
                         folderItem(ID_FOLDERS, "Folders"),
                         folderItem(ID_PLAYLISTS, "Playlists"),
                         folderItem(ID_CLOUD, "Cloud"),
-                        folderItem(ID_ALL, "All Tracks"),
-                        MediaItem.Builder()
-                            .setMediaId(ID_NOW_PLAYING)
-                            .setMediaMetadata(
-                                MediaMetadata.Builder()
-                                    .setTitle("Now Playing")
-                                    .setIsBrowsable(false)
-                                    .setIsPlayable(true)
-                                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                                    .build()
-                            ).build()
+                        folderItem(ID_ALL, "All Tracks")
                     )
                 }
                 parentId == ID_ARTISTS ->
-                    musicRepository.getAllArtists().first().map { folderItem("$ID_ARTISTS/$it", it) }
+                    listOf(continueItem) + musicRepository.getAllArtists().first()
+                        .map { folderItem("$ID_ARTISTS/$it", it) }
                 parentId.startsWith("$ID_ARTISTS/") -> {
                     val artist = parentId.removePrefix("$ID_ARTISTS/")
-                    musicRepository.getTracksByArtist(artist).first().map { trackBrowseItem(it) }
+                    listOf(continueItem) + musicRepository.getTracksByArtist(artist).first()
+                        .map { trackBrowseItem(it) }
                 }
                 parentId == ID_FOLDERS ->
-                    musicRepository.getAllFolders().first().map {
+                    listOf(continueItem) + musicRepository.getAllFolders().first().map {
                         folderItem("$ID_FOLDERS/$it", it.substringAfterLast('/').ifBlank { it })
                     }
                 parentId.startsWith("$ID_FOLDERS/") -> {
                     val folder = parentId.removePrefix("$ID_FOLDERS/")
-                    musicRepository.getTracksByFolder(folder).first().map { trackBrowseItem(it) }
+                    listOf(continueItem) + musicRepository.getTracksByFolder(folder).first()
+                        .map { trackBrowseItem(it) }
                 }
                 parentId == ID_PLAYLISTS -> {
-                    musicRepository.getAllPlaylists().first().map { pl ->
+                    listOf(continueItem) + musicRepository.getAllPlaylists().first().map { pl ->
                         folderItem("$ID_PLAYLISTS/${pl.id}", pl.name)
                     }
                 }
                 parentId.startsWith("$ID_PLAYLISTS/") -> {
                     val id = parentId.removePrefix("$ID_PLAYLISTS/").toLongOrNull()
-                    if (id == null) emptyList()
-                    else musicRepository.getTracksForPlaylist(id).first().map { trackBrowseItem(it) }
+                    if (id == null) listOf(continueItem)
+                    else listOf(continueItem) + musicRepository.getTracksForPlaylist(id).first()
+                        .map { trackBrowseItem(it) }
                 }
                 parentId == ID_CLOUD -> {
-                    val sources = musicRepository.getCloudSourcesList()
-                    if (sources.isNotEmpty()) {
-                        sources.map { src ->
-                            folderItem("$ID_CLOUD/${src.displayName}", src.displayName)
+                    val cloudItems = run {
+                        val sources = musicRepository.getCloudSourcesList()
+                        if (sources.isNotEmpty()) {
+                            sources.map { src ->
+                                folderItem("$ID_CLOUD/${src.displayName}", src.displayName)
+                            }
+                        } else {
+                            musicRepository.getAllFolders().first()
+                                .filter { it.startsWith("Cloud/") }
+                                .map { path ->
+                                    val name = path.removePrefix("Cloud/").substringBefore('/')
+                                    path to name
+                                }
+                                .distinctBy { it.second }
+                                .map { (path, name) ->
+                                    folderItem("$ID_CLOUD/$name", name.ifBlank { path })
+                                }
                         }
-                    } else {
-                        // Fallback: any folder paths tagged as Cloud/...
-                        musicRepository.getAllFolders().first()
-                            .filter { it.startsWith("Cloud/") }
-                            .map { path ->
-                                val name = path.removePrefix("Cloud/").substringBefore('/')
-                                path to name
-                            }
-                            .distinctBy { it.second }
-                            .map { (path, name) ->
-                                folderItem("$ID_CLOUD/$name", name.ifBlank { path })
-                            }
                     }
+                    listOf(continueItem) + cloudItems
                 }
                 parentId.startsWith("$ID_CLOUD/") -> {
                     val name = parentId.removePrefix("$ID_CLOUD/")
                     val prefix = "Cloud/$name"
-                    // Child folders under this cloud root
                     val allFolders = musicRepository.getAllFolders().first()
                         .filter { it == prefix || it.startsWith("$prefix/") }
                     val childNames = allFolders
@@ -809,11 +957,12 @@ class MusicService : MediaLibraryService() {
                     }
                     val tracks = musicRepository.getTracksByFolder(prefix).first()
                         .map { trackBrowseItem(it) }
-                    folders + tracks
+                    listOf(continueItem) + folders + tracks
                 }
                 parentId == ID_ALL ->
-                    musicRepository.getAllTracks().first().map { trackBrowseItem(it) }
-                else -> emptyList()
+                    listOf(continueItem) + musicRepository.getAllTracks().first()
+                        .map { trackBrowseItem(it) }
+                else -> listOf(continueItem)
             }
         }
 
@@ -828,6 +977,11 @@ class MusicService : MediaLibraryService() {
                     .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
                     .setExtras(Bundle().apply {
                         putInt("android.media.browse.CONTENT_STYLE_BROWSABLE_HINT", 1)
+                        // Offer "Last played" on this folder screen (AA secondary toolbar)
+                        putStringArrayList(
+                            KEY_CUSTOM_ACTION_ID_LIST,
+                            arrayListOf(ACTION_PLAY_LAST)
+                        )
                     })
                     .build()
             ).build()
@@ -1108,7 +1262,108 @@ class MusicService : MediaLibraryService() {
         }
     }
 
+
+    /**
+     * Cue the last-played track when the service starts (phone or Android Auto)
+     * so AA always has something to return to without re-browsing.
+     * Does not auto-play — user taps play or "Now Playing".
+     */
+    /** Play last (or current) track — used by AA custom browse action / list item. */
+    private fun playLastTrackFromBrowse() {
+        scope.launch {
+            try {
+                when {
+                    player.mediaItemCount > 0 -> {
+                        player.playWhenReady = true
+                        player.play()
+                    }
+                    else -> {
+                        val settings = userPreferences.settings.first()
+                        val track = withContext(Dispatchers.IO) {
+                            settings.lastTrackId.takeIf { it > 0 }
+                                ?.let { musicRepository.getTrackById(it) }
+                                ?: musicRepository.getAllTracksList().firstOrNull()
+                        } ?: return@launch
+                        val item = buildPlayableItem(track)
+                        val pos = settings.lastPositionMs.coerceAtLeast(0L)
+                        player.setMediaItem(item, true)
+                        player.prepare()
+                        if (pos > 0L) player.seekTo(pos)
+                        queue = listOf(track)
+                        queueIndex = 0
+                        player.playWhenReady = true
+                        player.play()
+                        // Expand queue in background
+                        launch(Dispatchers.IO) {
+                            try {
+                                val all = musicRepository.getAllTracksList() // may need sorted
+                                if (all.size <= 1) return@launch
+                                val idx = all.indexOfFirst { it.id == track.id }.let { if (it >= 0) it else 0 }
+                                val items = all.map { buildPlayableItem(it) }
+                                withContext(Dispatchers.Main) {
+                                    val cur = player.currentPosition
+                                    player.setMediaItems(items, idx, cur)
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun restoreLastTrackCue() {
+
+        scope.launch {
+            try {
+                if (player.mediaItemCount > 0) return@launch
+                val settings = userPreferences.settings.first()
+                val trackId = settings.lastTrackId
+                if (trackId <= 0L) return@launch
+                val track = withContext(Dispatchers.IO) {
+                    musicRepository.getTrackById(trackId)
+                } ?: return@launch
+                val item = buildPlayableItem(track)
+                val pos = settings.lastPositionMs.coerceAtLeast(0L)
+                player.setMediaItem(item, /* resetPosition= */ true)
+                player.prepare()
+                if (pos > 0L && (track.durationMs <= 0L || pos < track.durationMs)) {
+                    player.seekTo(pos)
+                }
+                player.pause()
+                queue = listOf(track)
+                queueIndex = 0
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun buildPlayableItem(track: com.iks.tplayer.data.model.Track): MediaItem {
+        val meta = MediaMetadata.Builder()
+            .setTitle(track.displayTitle)
+            .setArtist(track.displayArtist)
+            .setAlbumTitle(track.displayAlbum)
+            .setIsBrowsable(false)
+            .setIsPlayable(true)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+        track.albumArtPath?.let { path ->
+            val f = java.io.File(path)
+            if (f.exists()) meta.setArtworkUri(android.net.Uri.fromFile(f))
+        }
+        return MediaItem.Builder()
+            .setUri(android.net.Uri.parse(track.uri))
+            .setMediaId("track:${track.id}")
+            .setMediaMetadata(meta.build())
+            .build()
+    }
+
     private fun createNotificationChannel() {
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
@@ -1133,6 +1388,14 @@ class MusicService : MediaLibraryService() {
         const val CMD_NEXT_TRACK = "tplayer.next_track"
         const val CMD_PREV_TRACK = "tplayer.prev_track"
         const val CMD_TOGGLE_REPEAT = "tplayer.toggle_repeat"
+        /** Custom browse action — shown in AA secondary toolbar under search when supported. */
+        const val ACTION_PLAY_LAST = "tplayer.play_last"
+        // MediaConstants string keys (androidx.media.utils.MediaConstants)
+        const val KEY_CUSTOM_ACTION_ROOT_LIST = "android.media.browse.custom_browser_action_root_list"
+        const val KEY_CUSTOM_ACTION_ID = "android.media.browse.custom_browser_action_id"
+        const val KEY_CUSTOM_ACTION_LABEL = "android.media.browse.custom_browser_action_label"
+        const val KEY_CUSTOM_ACTION_ICON_URI = "android.media.browse.custom_browser_action_icon_uri"
+        const val KEY_CUSTOM_ACTION_ID_LIST = "android.media.browse.custom_browser_action_id_list"
     }
 }
 

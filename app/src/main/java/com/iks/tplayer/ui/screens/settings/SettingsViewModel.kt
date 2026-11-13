@@ -1,6 +1,9 @@
 package com.iks.tplayer.ui.screens.settings
 
+import android.content.Context
 import android.net.Uri
+import android.os.Build
+import dagger.hilt.android.qualifiers.ApplicationContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.iks.tplayer.data.preferences.ThemeMode
@@ -19,9 +22,36 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val preferences: UserPreferences,
     private val repository: MusicRepository
 ) : ViewModel() {
+
+    /** From app/build.gradle.kts versionName */
+    val appVersionName: String = try {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        @Suppress("DEPRECATION")
+        info.versionName ?: "1.0"
+    } catch (_: Exception) {
+        "1.0"
+    }
+
+    val appVersionCode: Long = try {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else {
+            @Suppress("DEPRECATION")
+            info.versionCode.toLong()
+        }
+    } catch (_: Exception) {
+        1L
+    }
+
+    /** Loaded from assets/about.txt — edit that file to change the About description. */
+    val aboutText: String = try {
+        context.assets.open("about.txt").bufferedReader().use { it.readText() }.trim()
+    } catch (_: Exception) {
+        "TPlayer — offline MP3 player."
+    }
 
     val settings = preferences.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.iks.tplayer.data.preferences.AppSettings())

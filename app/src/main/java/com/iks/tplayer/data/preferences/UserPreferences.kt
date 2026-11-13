@@ -159,17 +159,16 @@ class UserPreferences @Inject constructor(
         if (encoded.isBlank()) return emptyMap()
         return encoded.lineSequence()
             .map { it.trim() }
-            .filter { it.isNotEmpty() && '	' in it }
+            .filter { it.isNotEmpty() && '\t' in it }
             .mapNotNull { line ->
-                val i = line.indexOf('	')
+                val i = line.indexOf('\t')
                 if (i <= 0) null else line.substring(0, i) to line.substring(i + 1)
             }
             .toMap()
     }
 
     fun encodeFolderSignatures(map: Map<String, String>): String =
-        map.entries.sortedBy { it.key }.joinToString("\n") { "${it.key}	${it.value}" }
-
+        map.entries.sortedBy { it.key }.joinToString("\n") { "${it.key}\t${it.value}" }
 
     suspend fun setThemeMode(mode: ThemeMode) {
         context.dataStore.edit { it[Keys.THEME] = mode.name }
